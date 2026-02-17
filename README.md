@@ -52,7 +52,7 @@ gitas git clone <url>
 
 ```bash
 # Linux / macOS (Install Script)
-rm $(which gitas)
+rm -rf ~/.gitas
 
 # Windows (PowerShell Install Script)
 Remove-Item -Path "$env:LOCALAPPDATA\gitas" -Recurse -Force
