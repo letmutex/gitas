@@ -112,7 +112,7 @@ if [ -n "$PROFILE" ]; then
         echo "" >> "$PROFILE"
         echo "# Gitas path" >> "$PROFILE"
         echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$PROFILE"
-        echo "Please restart your terminal or run: source $PROFILE"
+        echo -e "Please restart your terminal or run: \033[1msource $PROFILE\033[0m"
     fi
 fi
 
