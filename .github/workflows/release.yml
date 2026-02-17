@@ -29,11 +29,11 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact_name: gitas.exe
             asset_suffix: windows-x64.zip
-          - os: macos-12 # Intel
+          - os: macos-latest # Intel via Rosetta/Cross
             target: x86_64-apple-darwin
             artifact_name: gitas
             asset_suffix: macos-x64.tar.gz
-          - os: macos-14 # Apple Silicon (M1)
+          - os: macos-latest # Apple Silicon (M1)
             target: aarch64-apple-darwin
             artifact_name: gitas
             asset_suffix: macos-arm64.tar.gz
