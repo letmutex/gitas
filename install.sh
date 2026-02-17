@@ -60,7 +60,6 @@ echo "Latest version: $TAG_NAME"
 
 # Construct download URL (assuming asset naming convention: gitas-vX.Y.Z-os-arch.tar.gz)
 DOWNLOAD_URL="https://github.com/letmutex/gitas/releases/download/$TAG_NAME/gitas-$TAG_NAME-$ASSET_SUFFIX"
-INSTALL_DIR="/usr/local/bin"
 BIN_NAME="gitas"
 
 # Windows specific handling (basic)
@@ -75,6 +74,9 @@ if [ "$OS" == "windows" ]; then
 fi
 
 # Unix specific handling (Linux/macOS)
+INSTALL_DIR="$HOME/.gitas/bin"
+mkdir -p "$INSTALL_DIR"
+
 TEMP_DIR=$(mktemp -d)
 echo "Downloading to $TEMP_DIR..."
 curl -L -o "$TEMP_DIR/gitas.tar.gz" "$DOWNLOAD_URL"
@@ -83,17 +85,35 @@ echo "Extracting..."
 tar -xzf "$TEMP_DIR/gitas.tar.gz" -C "$TEMP_DIR"
 
 echo "Installing to $INSTALL_DIR..."
-# Request sudo if not root and trying to install to system directory
-if [ "$EUID" -ne 0 ] && [ -w "$INSTALL_DIR" ]; then
-    mv "$TEMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-elif [ "$EUID" -ne 0 ]; then
-    echo "Sudo permission required to install to $INSTALL_DIR"
-    sudo mv "$TEMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-else
-    mv "$TEMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
-fi
-
+mv "$TEMP_DIR/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
 chmod +x "$INSTALL_DIR/$BIN_NAME"
 rm -rf "$TEMP_DIR"
+
+# Path update logic
+SHELL_TYPE="$(basename "$SHELL")"
+PROFILE=""
+
+case "$SHELL_TYPE" in
+    zsh)
+        PROFILE="$HOME/.zshrc"
+        ;;
+    bash)
+        if [ "$OS" == "macos" ]; then
+            PROFILE="$HOME/.bash_profile"
+        else
+            PROFILE="$HOME/.bashrc"
+        fi
+        ;;
+esac
+
+if [ -n "$PROFILE" ]; then
+    if ! grep -q "$INSTALL_DIR" "$PROFILE"; then
+        echo "Adding $INSTALL_DIR to PATH in $PROFILE"
+        echo "" >> "$PROFILE"
+        echo "# Gitas path" >> "$PROFILE"
+        echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$PROFILE"
+        echo "Please restart your terminal or run: source $PROFILE"
+    fi
+fi
 
 echo "Successfully installed gitas $TAG_NAME to $INSTALL_DIR/$BIN_NAME"
