@@ -36,3 +36,7 @@ gitas git clone <url>
 
 - **Config**: [`dirs::config_dir()`](https://docs.rs/dirs/latest/dirs/fn.config_dir.html)/`gitas/accounts.json`
 - **Secrets**: System Keychain
+
+## License
+
+This project is licensed under the [Apache License, Version 2.0](LICENSE).
