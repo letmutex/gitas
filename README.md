@@ -7,6 +7,17 @@ Git Account Switch / Git As
 ## Installation
 
 ```bash
+# Install Script (Linux & macOS)
+curl -fsSL https://raw.githubusercontent.com/letmutex/gitas/main/install.sh | sh
+
+# Install Script (Windows PowerShell)
+irm https://raw.githubusercontent.com/letmutex/gitas/main/install.ps1 | iex
+
+# Homebrew
+brew tap letmutex/gitas
+brew install gitas
+
+# Cargo
 cargo install gitas
 ```
 
