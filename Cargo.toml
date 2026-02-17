@@ -8,7 +8,7 @@ description = "GitHub Account Switch — manage multiple git identities"
 repository = "https://github.com/letmutex/gitas"
 homepage = "https://github.com/letmutex/gitas"
 documentation = "https://docs.rs/gitas"
-keywords = ["git", "github", "account", "identity", "cli", "tui"]
+keywords = ["git", "github", "account", "cli", "tui"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
