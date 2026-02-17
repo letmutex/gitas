@@ -24,6 +24,14 @@ gitas add
 gitas git clone <url>
 ```
 
+## How It Works
+
+**Switching Identity**: Updates your local/global `git config` and pre-fills the credential cache, so subsequent git commands work seamlessly without prompts.
+
+**Command Proxy (`gitas git`)**: Executes git with a temporary identity and credential helper using `-c` flags. It does **not** modify any config files, making it perfect for one-off commands.
+
+**Secure Storage**: All tokens are stored in your system's native keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+
 ## Data
 
 - **Config**: [`dirs::config_dir()`](https://docs.rs/dirs/latest/dirs/fn.config_dir.html)/`gitas/accounts.json`
