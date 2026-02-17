@@ -1,5 +1,5 @@
 use crate::models::{Config, save_config};
-use crate::utils::{git_config_get, git_config_set, git_credential_approve};
+use crate::utils::{git_config_get, git_config_set, git_credential_approve, git_credential_reject};
 use colored::Colorize;
 use crossterm::{
     cursor,
@@ -470,6 +470,8 @@ impl<'a> ListState<'a> {
                             lines_printed += 1;
                         }
 
+                        // Clear any potentially conflicting credentials
+                        git_credential_reject(host);
                         git_credential_approve(&account.username, &token, host, url.as_deref());
                     }
                     _ => {

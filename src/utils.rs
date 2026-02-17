@@ -95,6 +95,20 @@ pub fn git_credential_approve(username: &str, token: &str, host: &str, url: Opti
     }
 }
 
+pub fn git_credential_reject(host: &str) {
+    use std::io::Write;
+    let input = format!("protocol=https\nhost={host}\n\n");
+    let mut child = Command::new("git")
+        .args(["credential", "reject"])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("Failed to execute git credential reject");
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(input.as_bytes()).ok();
+    }
+    let _ = child.wait();
+}
+
 pub fn format_account_label(account: &Account) -> String {
     match &account.alias {
         Some(alias) => format!("{}:{} <{}>", account.username, alias, account.email),
