@@ -48,6 +48,22 @@ gitas git clone <url>
 - **Config**: [`dirs::config_dir()`](https://docs.rs/dirs/latest/dirs/fn.config_dir.html)/`gitas/accounts.json`
 - **Secrets**: System Keychain
 
+## Uninstallation
+
+```bash
+# Linux / macOS (Install Script)
+rm $(which gitas)
+
+# Windows (PowerShell Install Script)
+Remove-Item -Path "$env:LOCALAPPDATA\gitas" -Recurse -Force
+
+# Homebrew
+brew uninstall gitas
+
+# Cargo
+cargo uninstall gitas
+```
+
 ## License
 
 This project is licensed under the [Apache License, Version 2.0](LICENSE).
