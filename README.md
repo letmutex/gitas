@@ -2,6 +2,8 @@
 
 Git Account Switch / Git As
 
+![Screenshot](./image.png)
+
 ## Installation
 
 ```bash
@@ -18,6 +20,7 @@ gitas
 gitas add
 
 # Run any git command as a specific account
+# Useful for cloning private projects
 gitas git clone <url>
 ```
 
