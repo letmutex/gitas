@@ -12,7 +12,7 @@ pub fn run(config: &mut Config) {
     let methods = ["Manual Input", "GitHub Browser Login"];
     let selection = Select::new()
         .with_prompt("  Authentication Method")
-        .items(&methods)
+        .items(methods)
         .default(0)
         .interact_opt()
         .unwrap_or(None);
