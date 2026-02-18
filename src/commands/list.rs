@@ -149,6 +149,9 @@ impl<'a> ListState<'a> {
             crossterm::queue!(stdout, cursor::MoveUp(extra as u16)).ok();
         }
 
+        // Clear any stale content below the frame (leftover from submenus)
+        crossterm::queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).ok();
+
         stdout.flush().ok();
         self.last_rendered_lines = frame.len();
     }
