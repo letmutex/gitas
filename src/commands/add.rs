@@ -1,30 +1,44 @@
 use crate::github;
 use crate::models::{Account, Config, save_config, set_token};
+use crate::tui::{
+    enter_raw_mode, exit_raw_mode, raw_confirm, raw_input, raw_password, raw_println, raw_select,
+};
 use colored::Colorize;
-use dialoguer::{Confirm, Input, Password, Select};
 
 pub fn run(config: &mut Config) {
-    println!();
-    println!("  {}", "Add Git Account".bold());
-    println!("  {}", "─".repeat(48).dimmed());
-    println!();
+    enter_raw_mode(); // Start raw mode immediately
 
-    let methods = ["Manual Input", "GitHub Browser Login"];
-    let selection = Select::new()
-        .with_prompt("  Authentication Method")
-        .items(methods)
-        .default(0)
-        .interact_opt()
-        .unwrap_or(None);
+    raw_println("");
+    raw_println(&format!("  {}", "Add Git Account".bold()));
+    raw_println(&format!("  {}", "─".repeat(48).dimmed()));
+    raw_println("");
+
+    let methods = vec![
+        "Manual Input".to_string(),
+        "GitHub Browser Login".to_string(),
+    ];
+
+    let selection = raw_select("Authentication Method", &methods, 0);
 
     match selection {
-        Some(0) => add_manual(config),
-        Some(1) => add_github(config),
-        _ => {}
+        Some(0) => {
+            // Manual - stay in raw mode
+            add_manual(config);
+            exit_raw_mode();
+        }
+        Some(1) => {
+            // GitHub - exit raw mode because github::login prints standard output and opens browser
+            exit_raw_mode();
+            add_github(config);
+        }
+        _ => {
+            exit_raw_mode();
+        }
     }
 }
 
 fn add_github(config: &mut Config) {
+    // Normal terminal mode
     if let Some((username, email, _name, token)) = github::login() {
         println!(
             "  Authenticated as: {} <{}>",
@@ -32,34 +46,37 @@ fn add_github(config: &mut Config) {
             email.dimmed()
         );
 
-        let alias: String = Input::new()
-            .with_prompt("  Alias (optional, press Enter to skip)")
-            .default(String::new())
-            .interact_text()
-            .unwrap_or_default();
+        // We could re-enter raw mode here for the alias input, but mixing modes is complex.
+        // Let's stick to standard input for consistency within this flow since we already left raw mode.
+        // We'll use dialoguer just for this part as fallback, or just manual input reading?
+        // Dialoguer is still a dependency, so we can use it.
+        // Or we can use raw_input by re-entering raw mode. Re-entering is cleaner for UI consistency.
 
+        enter_raw_mode();
+
+        let alias = raw_input("Alias (optional)", "").unwrap_or_default();
         let alias = if alias.is_empty() { None } else { Some(alias) };
 
-        // Check for duplicate (username + alias)
+        // Check for duplicate
         let existing_idx = config
             .accounts
             .iter()
             .position(|a| a.username == username && a.alias == alias);
 
         if existing_idx.is_some() {
-            let confirmed = Confirm::new()
-                .with_prompt(format!(
-                    "  Account '{}' (alias: {}) already exists. Overwrite?",
-                    username.yellow(),
-                    alias.as_deref().unwrap_or("none").yellow()
-                ))
-                .default(false)
-                .interact()
-                .unwrap_or(false);
+            let prompt = format!(
+                "Account '{}' (alias: {}) already exists. Overwrite?",
+                username.yellow(),
+                alias.as_deref().unwrap_or("none").yellow()
+            );
 
-            if !confirmed {
-                println!("\n  {}\n", "Cancelled.".dimmed());
-                return;
+            match raw_confirm(&prompt, false) {
+                Some(true) => {}
+                _ => {
+                    raw_println(&format!("\n  {}\n", "Cancelled.".dimmed()));
+                    exit_raw_mode();
+                    return;
+                }
             }
         }
 
@@ -67,78 +84,63 @@ fn add_github(config: &mut Config) {
             username: username.clone(),
             email,
             alias: alias.clone(),
-            host: None, // Defaults to github.com
+            host: None,
         };
 
-        // Securely store the token
         set_token(&username, alias.as_deref(), &token);
 
         if let Some(idx) = existing_idx {
-            upsert_account(config, account, Some(idx));
+            upsert_account_raw(config, account, Some(idx));
         } else {
-            upsert_account(config, account, None);
+            upsert_account_raw(config, account, None);
         }
+        exit_raw_mode();
     }
 }
 
 fn add_manual(config: &mut Config) {
-    let username: String = Input::new()
-        .with_prompt("  Username")
-        .interact_text()
-        .expect("Failed to read input");
+    let username = match raw_input("Username", "") {
+        Some(u) if !u.is_empty() => u,
+        _ => return,
+    };
 
-    let email: String = Input::new()
-        .with_prompt("  Email")
-        .interact_text()
-        .expect("Failed to read input");
+    let email = match raw_input("Email", "") {
+        Some(e) if !e.is_empty() => e,
+        _ => return,
+    };
 
-    let alias: String = Input::new()
-        .with_prompt("  Alias (optional, press Enter to skip)")
-        .default(String::new())
-        .interact_text()
-        .unwrap_or_default();
-
+    let alias = raw_input("Alias (optional)", "").unwrap_or_default();
     let alias = if alias.is_empty() { None } else { Some(alias) };
 
-    // Check for duplicate (username + alias)
+    // Check duplicate
     let existing_idx = config
         .accounts
         .iter()
         .position(|a| a.username == username && a.alias == alias);
 
     if existing_idx.is_some() {
-        let confirmed = Confirm::new()
-            .with_prompt(format!(
-                "  Account '{}' (alias: {}) already exists. Overwrite?",
-                username.yellow(),
-                alias.as_deref().unwrap_or("none").yellow()
-            ))
-            .default(false)
-            .interact()
-            .unwrap_or(false);
+        let prompt = format!(
+            "Account '{}' (alias: {}) already exists. Overwrite?",
+            username.yellow(),
+            alias.as_deref().unwrap_or("none").yellow()
+        );
 
-        if !confirmed {
-            println!("\n  {}\n", "Cancelled.".dimmed());
-            return;
+        match raw_confirm(&prompt, false) {
+            Some(true) => {}
+            _ => {
+                raw_println(&format!("\n  {}\n", "Cancelled.".dimmed()));
+                return;
+            }
         }
     }
 
-    let token: String = Password::new()
-        .with_prompt("  Token/PAT (optional, press Enter to skip)")
-        .allow_empty_password(true)
-        .interact()
-        .unwrap_or_default();
+    let token = raw_password("Token/PAT (optional)").unwrap_or_default();
+    let host_in = raw_input("Host", "github.com").unwrap_or_else(|| "github.com".to_string());
 
-    let host: String = Input::new()
-        .with_prompt("  Host")
-        .default("github.com".to_string())
-        .interact_text()
-        .unwrap_or_else(|_| "github.com".to_string());
-
-    let host = if host == "github.com" {
+    let host = if host_in == "github.com" || host_in.is_empty() {
         None
     } else {
-        Some(host)
+        Some(host_in)
     };
 
     let account = Account {
@@ -148,37 +150,35 @@ fn add_manual(config: &mut Config) {
         host,
     };
 
-    // Securely store the token if provided
     if !token.is_empty() {
         set_token(&username, alias.as_deref(), &token);
     } else {
-        // Explicitly clear token if it was overwritten with empty
         crate::models::delete_token(&username, alias.as_deref());
     }
 
     if let Some(idx) = existing_idx {
-        upsert_account(config, account, Some(idx));
+        upsert_account_raw(config, account, Some(idx));
     } else {
-        upsert_account(config, account, None);
+        upsert_account_raw(config, account, None);
     }
 }
 
-fn upsert_account(config: &mut Config, account: Account, index: Option<usize>) {
+fn upsert_account_raw(config: &mut Config, account: Account, index: Option<usize>) {
     let username = account.username.clone();
     if let Some(idx) = index {
         config.accounts[idx] = account;
-        println!(
+        raw_println(&format!(
             "\n  {} Account '{}' updated successfully.\n",
             "✓".green().bold(),
             username.cyan()
-        );
+        ));
     } else {
         config.accounts.push(account);
-        println!(
+        raw_println(&format!(
             "\n  {} Account '{}' added successfully.\n",
             "✓".green().bold(),
             username.cyan()
-        );
+        ));
     }
     save_config(config);
 }

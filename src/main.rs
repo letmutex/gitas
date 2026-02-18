@@ -1,6 +1,7 @@
 mod commands;
 mod github;
 mod models;
+mod tui;
 mod utils;
 
 use clap::{Parser, Subcommand};
