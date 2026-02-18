@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 # Determine OS and Architecture
@@ -26,7 +26,7 @@ case "$ARCH" in
         ARCH="x64"
         ;;
     arm64|aarch64)
-        if [ "$OS" == "macos" ]; then
+        if [ "$OS" = "macos" ]; then
             ARCH="arm64"
         else
             echo "Unsupported architecture: $ARCH on $OS"
@@ -40,8 +40,7 @@ case "$ARCH" in
 esac
 
 # Construct asset name pattern
-# Using regex for version flexibility since we fetch the latest release tag
-if [ "$OS" == "windows" ]; then
+if [ "$OS" = "windows" ]; then
     ASSET_SUFFIX="$OS-$ARCH.zip"
 else
     ASSET_SUFFIX="$OS-$ARCH.tar.gz"
@@ -51,7 +50,7 @@ echo "Detecting latest version..."
 LATEST_RELEASE=$(curl -s https://api.github.com/repos/letmutex/gitas/releases/latest)
 TAG_NAME=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
 
-if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" == "null" ]; then
+if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" = "null" ]; then
     echo "Error: Could not find latest release version."
     exit 1
 fi
@@ -63,7 +62,7 @@ DOWNLOAD_URL="https://github.com/letmutex/gitas/releases/download/$TAG_NAME/gita
 BIN_NAME="gitas"
 
 # Windows specific handling (basic)
-if [ "$OS" == "windows" ]; then
+if [ "$OS" = "windows" ]; then
     echo "Downloading $DOWNLOAD_URL..."
     curl -L -o "gitas.zip" "$DOWNLOAD_URL"
     unzip -o "gitas.zip"
@@ -98,7 +97,7 @@ case "$SHELL_TYPE" in
         PROFILE="$HOME/.zshrc"
         ;;
     bash)
-        if [ "$OS" == "macos" ]; then
+        if [ "$OS" = "macos" ]; then
             PROFILE="$HOME/.bash_profile"
         else
             PROFILE="$HOME/.bashrc"
@@ -112,7 +111,7 @@ if [ -n "$PROFILE" ]; then
         echo "" >> "$PROFILE"
         echo "# Gitas path" >> "$PROFILE"
         echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$PROFILE"
-        echo -e "Please restart your terminal or run: \033[1msource $PROFILE\033[0m"
+        printf "Please restart your terminal or run: \033[1msource %s\033[0m\n" "$PROFILE"
     fi
 fi
 
