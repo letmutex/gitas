@@ -1,4 +1,5 @@
 use crate::models::{Config, save_config};
+use crate::tui::{raw_confirm, raw_input, raw_password, raw_select, raw_show_status};
 use crate::utils::{
     git_config_get, git_config_set, git_config_unset, git_credential_approve, git_credential_reject,
 };
@@ -9,7 +10,6 @@ use crossterm::{
     execute,
     terminal::{self, ClearType},
 };
-use dialoguer::{Confirm, Input, Select, theme::ColorfulTheme};
 use std::cmp::min;
 use std::io::{Write, stdout};
 
@@ -59,27 +59,21 @@ impl<'a> ListState<'a> {
                         self.render();
                     }
                     KeyCode::Enter => {
-                        self.cleanup_terminal();
                         if self.handle_switch() {
                             self.refresh_git();
                         }
-                        self.setup_terminal();
                         self.render();
                     }
                     KeyCode::Backspace | KeyCode::Delete => {
-                        self.cleanup_terminal();
                         if self.handle_delete() {
                             self.refresh_git();
                         }
-                        self.setup_terminal();
                         self.render();
                     }
                     KeyCode::Char('e') => {
-                        self.cleanup_terminal();
                         if self.handle_edit() {
                             self.refresh_git();
                         }
-                        self.setup_terminal();
                         self.render();
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
@@ -95,17 +89,6 @@ impl<'a> ListState<'a> {
 
         // Cleanup on exit
         self.exit_cleanup();
-    }
-
-    fn setup_terminal(&self) {
-        terminal::enable_raw_mode().ok();
-        execute!(stdout(), cursor::Hide).ok();
-    }
-
-    fn cleanup_terminal(&mut self) {
-        // Only disable raw mode/show cursor to allow dialoguer to print below the list
-        execute!(stdout(), cursor::Show).ok();
-        terminal::disable_raw_mode().ok();
     }
 
     fn exit_cleanup(&mut self) {
@@ -166,6 +149,9 @@ impl<'a> ListState<'a> {
             }
             crossterm::queue!(stdout, cursor::MoveUp(extra as u16)).ok();
         }
+
+        // Clear any stale content below the frame (leftover from submenus)
+        crossterm::queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).ok();
 
         stdout.flush().ok();
         self.last_rendered_lines = frame.len();
@@ -231,7 +217,6 @@ impl<'a> ListState<'a> {
         let (term_cols, _) = terminal::size().unwrap_or((80, 24));
         let max_width = (term_cols as usize).saturating_sub(4); // buffer
 
-        // Calculate widths
         let name_len_fn = |name: &str, alias: Option<&String>| -> usize {
             name.len() + alias.map(|a| a.len() + 1).unwrap_or(0)
         };
@@ -428,18 +413,8 @@ impl<'a> ListState<'a> {
             "Cancel".dimmed().to_string(),
         ];
 
-        let selection = Select::with_theme(&ColorfulTheme::default())
-            .with_prompt(format!(
-                "  Switch to '{}'. Apply to",
-                account.username.cyan()
-            ))
-            .items(&items)
-            .default(0)
-            .clear(true)
-            .interact_opt()
-            .unwrap_or(None);
-
-        execute!(stdout(), cursor::MoveUp(1)).ok();
+        let prompt = format!("Switch to '{}'. Apply to", account.username.cyan());
+        let selection = raw_select(&prompt, &items, 0);
 
         match selection {
             Some(0) | Some(1) => {
@@ -462,7 +437,7 @@ impl<'a> ListState<'a> {
                 let cred_key = format!("credential.https://{}.username", host);
                 git_config_set(&cred_key, &account.username, scope);
 
-                let mut lines_printed = 0;
+                let mut status_lines: Vec<String> = Vec::new();
 
                 match crate::models::get_token(&account.username, account.alias.as_deref()) {
                     Some(token) if !token.is_empty() => {
@@ -479,8 +454,7 @@ impl<'a> ListState<'a> {
                         }
 
                         if let Some(warning) = crate::utils::check_credential_helper() {
-                            println!("{}", warning);
-                            lines_printed += 1;
+                            status_lines.push(warning);
                         }
 
                         // Clear any potentially conflicting credentials
@@ -488,37 +462,26 @@ impl<'a> ListState<'a> {
                         git_credential_approve(&account.username, &token, host, url.as_deref());
                     }
                     _ => {
-                        println!(
+                        status_lines.push(format!(
                             "  {} No token found for {}. Git may prompt for authentication.",
                             "⚠".yellow(),
                             account.username.cyan()
-                        );
-                        std::thread::sleep(std::time::Duration::from_millis(1500));
-                        execute!(
-                            stdout(),
-                            cursor::MoveUp(1),
-                            terminal::Clear(ClearType::CurrentLine)
-                        )
-                        .ok();
+                        ));
                     }
                 }
 
-                println!(
-                    "\n{}   Switched to '{}' ({})",
+                status_lines.push(String::new());
+                status_lines.push(format!(
+                    "{}   Switched to '{}' ({})",
                     "✔".green(),
                     account.username.cyan(),
                     scope.green()
-                );
-                lines_printed += 2;
+                ));
 
-                let sleep_ms = if lines_printed > 2 { 2500 } else { 1500 };
-                std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
-                execute!(
-                    stdout(),
-                    cursor::MoveUp(lines_printed as u16),
-                    terminal::Clear(ClearType::FromCursorDown)
-                )
-                .ok();
+                raw_show_status(
+                    &status_lines,
+                    if status_lines.len() > 3 { 2500 } else { 1500 },
+                );
                 true
             }
             _ => false,
@@ -536,21 +499,9 @@ impl<'a> ListState<'a> {
         }
 
         let account = &self.config.accounts[self.cursor];
+        let prompt = format!("Remove account '{}'?", account.username.yellow());
 
-        let confirmed = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt(format!("  Remove account '{}'?", account.username.yellow()))
-            .default(false)
-            .interact_opt()
-            .unwrap_or(None);
-
-        execute!(
-            stdout(),
-            cursor::MoveUp(1),
-            terminal::Clear(ClearType::CurrentLine)
-        )
-        .ok();
-
-        if let Some(true) = confirmed {
+        if let Some(true) = raw_confirm(&prompt, false) {
             let username = account.username.clone();
             let alias = account.alias.clone();
             crate::models::delete_token(&username, alias.as_deref());
@@ -610,93 +561,47 @@ impl<'a> ListState<'a> {
                 "Cancel".dimmed().to_string(),
             ];
 
-            let selection = Select::with_theme(&ColorfulTheme::default())
-                .with_prompt("  Edit Account")
-                .items(&fields)
-                .default(0)
-                .clear(true)
-                .interact_opt()
-                .unwrap_or(None);
-
-            execute!(stdout(), cursor::MoveUp(1)).ok();
+            let items: Vec<String> = fields.iter().map(|s| s.to_string()).collect();
+            let selection = raw_select("Edit Account", &items, 0);
 
             match selection {
                 Some(0) => {
-                    temp_account.username = Input::with_theme(&ColorfulTheme::default())
-                        .with_prompt("  New Username")
-                        .default(temp_account.username)
-                        .interact_text()
-                        .unwrap();
-                    execute!(
-                        stdout(),
-                        cursor::MoveUp(1),
-                        terminal::Clear(ClearType::CurrentLine)
-                    )
-                    .ok();
+                    if let Some(val) = raw_input("New Username", &temp_account.username)
+                        && !val.is_empty()
+                    {
+                        temp_account.username = val;
+                    }
                 }
                 Some(1) => {
-                    temp_account.email = Input::with_theme(&ColorfulTheme::default())
-                        .with_prompt("  New Email")
-                        .default(temp_account.email)
-                        .interact_text()
-                        .unwrap();
-                    execute!(
-                        stdout(),
-                        cursor::MoveUp(1),
-                        terminal::Clear(ClearType::CurrentLine)
-                    )
-                    .ok();
+                    if let Some(val) = raw_input("New Email", &temp_account.email)
+                        && !val.is_empty()
+                    {
+                        temp_account.email = val;
+                    }
                 }
                 Some(2) => {
-                    let alias: String = Input::with_theme(&ColorfulTheme::default())
-                        .with_prompt("  New Alias (optional)")
-                        .default(temp_account.alias.clone().unwrap_or_default())
-                        .interact_text()
-                        .unwrap();
-                    execute!(
-                        stdout(),
-                        cursor::MoveUp(1),
-                        terminal::Clear(ClearType::CurrentLine)
-                    )
-                    .ok();
-                    temp_account.alias = if alias.is_empty() { None } else { Some(alias) };
+                    if let Some(val) =
+                        raw_input("New Alias", temp_account.alias.as_deref().unwrap_or(""))
+                    {
+                        temp_account.alias = if val.is_empty() { None } else { Some(val) };
+                    }
                 }
                 Some(3) => {
-                    let host: String = Input::with_theme(&ColorfulTheme::default())
-                        .with_prompt("  New Host")
-                        .default(
-                            temp_account
-                                .host
-                                .clone()
-                                .unwrap_or_else(|| "github.com".to_string()),
-                        )
-                        .interact_text()
-                        .unwrap();
-                    execute!(
-                        stdout(),
-                        cursor::MoveUp(1),
-                        terminal::Clear(ClearType::CurrentLine)
-                    )
-                    .ok();
-                    temp_account.host = if host == "github.com" || host.is_empty() {
-                        None
-                    } else {
-                        Some(host)
-                    };
+                    if let Some(val) = raw_input(
+                        "New Host",
+                        temp_account.host.as_deref().unwrap_or("github.com"),
+                    ) {
+                        temp_account.host = if val == "github.com" || val.is_empty() {
+                            None
+                        } else {
+                            Some(val)
+                        };
+                    }
                 }
                 Some(4) => {
-                    let token: String = Input::with_theme(&ColorfulTheme::default())
-                        .with_prompt("  New Token/PAT (optional)")
-                        .default(current_token.clone().unwrap_or_default())
-                        .interact_text()
-                        .unwrap();
-                    execute!(
-                        stdout(),
-                        cursor::MoveUp(1),
-                        terminal::Clear(ClearType::CurrentLine)
-                    )
-                    .ok();
-                    current_token = if token.is_empty() { None } else { Some(token) };
+                    if let Some(val) = raw_password("New Token/PAT") {
+                        current_token = if val.is_empty() { None } else { Some(val) };
+                    }
                 }
                 Some(5) => {
                     if original_username != temp_account.username
@@ -727,6 +632,8 @@ impl<'a> ListState<'a> {
         }
     }
 }
+
+// ─── Git identity ───────────────────────────────────────────────────────────
 
 struct GitIdentity {
     global_name: Option<String>,

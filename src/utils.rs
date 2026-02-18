@@ -1,6 +1,6 @@
 use crate::models::{Account, Config};
+use crate::tui::{enter_raw_mode, exit_raw_mode, raw_select};
 use colored::Colorize;
-use dialoguer::Select;
 use std::process::Command;
 
 pub fn check_git_installed() {
@@ -160,12 +160,9 @@ pub fn resolve_account(config: &Config, identifier: Option<String>, prompt: &str
         None => {
             let labels: Vec<String> = config.accounts.iter().map(format_account_label).collect();
 
-            let selection = Select::new()
-                .with_prompt(prompt)
-                .items(&labels)
-                .default(0)
-                .interact_opt()
-                .expect("Failed to read selection");
+            enter_raw_mode();
+            let selection = raw_select(prompt, &labels, 0);
+            exit_raw_mode();
 
             match selection {
                 Some(index) => config.accounts[index].clone(),
