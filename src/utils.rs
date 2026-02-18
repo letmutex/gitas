@@ -29,6 +29,18 @@ pub fn git_config_set(key: &str, value: &str, scope: &str) {
     }
 }
 
+pub fn git_config_unset(key: &str, scope: &str) {
+    let scope_flag = if scope == "local" {
+        "--local"
+    } else {
+        "--global"
+    };
+    // --unset may fail if key doesn't exist; that's fine
+    let _ = Command::new("git")
+        .args(["config", scope_flag, "--unset", key])
+        .status();
+}
+
 pub fn git_config_get(key: &str, scope: &str) -> Option<String> {
     let args = match scope {
         "local" => vec!["config", "--local", "--get", key],
