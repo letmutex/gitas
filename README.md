@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/letmutex/gitas/main/install.sh | sh
 irm https://raw.githubusercontent.com/letmutex/gitas/main/install.ps1 | iex
 
 # Homebrew
-brew tap letmutex/gitas
+brew tap letmutex/tap
 brew install gitas
 
 # Cargo
