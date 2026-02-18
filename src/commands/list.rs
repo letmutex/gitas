@@ -137,27 +137,36 @@ impl<'a> ListState<'a> {
         let frame = self.build_frame(&unmanaged);
         let mut stdout = stdout();
 
-        // 1. Move up if we have rendered before
+        // Move to start of previous frame
         if self.last_rendered_lines > 0 {
-            crossterm::queue!(
-                stdout,
-                cursor::MoveUp(self.last_rendered_lines as u16),
-                terminal::Clear(ClearType::FromCursorDown)
-            )
-            .ok();
+            crossterm::queue!(stdout, cursor::MoveUp(self.last_rendered_lines as u16)).ok();
         }
 
-        // 2. Render new frame
+        // Overwrite each line in-place (prevents flash on Windows)
         for line in &frame {
             crossterm::queue!(
                 stdout,
+                terminal::Clear(ClearType::CurrentLine),
                 crossterm::style::Print(line),
                 crossterm::style::Print("\r\n")
             )
             .ok();
         }
 
-        // 3. Flush
+        // If previous frame was taller, clear leftover lines
+        if frame.len() < self.last_rendered_lines {
+            let extra = self.last_rendered_lines - frame.len();
+            for _ in 0..extra {
+                crossterm::queue!(
+                    stdout,
+                    terminal::Clear(ClearType::CurrentLine),
+                    crossterm::style::Print("\r\n")
+                )
+                .ok();
+            }
+            crossterm::queue!(stdout, cursor::MoveUp(extra as u16)).ok();
+        }
+
         stdout.flush().ok();
         self.last_rendered_lines = frame.len();
     }
