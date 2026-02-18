@@ -1,5 +1,7 @@
 use crate::models::{Config, save_config};
-use crate::utils::{git_config_get, git_config_set, git_credential_approve, git_credential_reject};
+use crate::utils::{
+    git_config_get, git_config_set, git_config_unset, git_credential_approve, git_credential_reject,
+};
 use colored::Colorize;
 use crossterm::{
     cursor,
@@ -217,19 +219,18 @@ impl<'a> ListState<'a> {
         frame.push(String::new());
 
         // Calculate maximum available width to prevent wrapping
-        // Calculate maximum available width to prevent wrapping
         let (term_cols, _) = terminal::size().unwrap_or((80, 24));
         let max_width = (term_cols as usize).saturating_sub(4); // buffer
 
         // Calculate widths
-        let accounts_iter = self.config.accounts.iter();
-
         let name_len_fn = |name: &str, alias: Option<&String>| -> usize {
             name.len() + alias.map(|a| a.len() + 1).unwrap_or(0)
         };
 
-        let max_name_len = accounts_iter
-            .clone()
+        let max_name_len = self
+            .config
+            .accounts
+            .iter()
             .map(|a| name_len_fn(&a.username, a.alias.as_ref()))
             .chain(unmanaged.iter().map(|(n, _, _)| n.len()))
             .max()
@@ -238,7 +239,10 @@ impl<'a> ListState<'a> {
         // Ensure minimum width
         let name_width = "Username".len().max(max_name_len);
 
-        let max_email_len = accounts_iter
+        let max_email_len = self
+            .config
+            .accounts
+            .iter()
             .map(|a| a.email.len() + 2) // <email>
             .chain(unmanaged.iter().map(|(_, e, _)| e.len() + 2))
             .max()
@@ -441,7 +445,7 @@ impl<'a> ListState<'a> {
                 if let Some(alias) = &account.alias {
                     git_config_set("gitas.alias", alias, scope);
                 } else {
-                    git_config_set("gitas.alias", "", scope);
+                    git_config_unset("gitas.alias", scope);
                 }
 
                 // Enforce the correct username for the credential helper (fixes "sticky" tokens)
@@ -490,7 +494,6 @@ impl<'a> ListState<'a> {
                     }
                 }
 
-                save_config(self.config);
                 println!(
                     "\n{}   Switched to '{}' ({})",
                     "✔".green(),
