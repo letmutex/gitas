@@ -48,9 +48,6 @@ fn add_github(config: &mut Config) {
 
         // We could re-enter raw mode here for the alias input, but mixing modes is complex.
         // Let's stick to standard input for consistency within this flow since we already left raw mode.
-        // We'll use dialoguer just for this part as fallback, or just manual input reading?
-        // Dialoguer is still a dependency, so we can use it.
-        // Or we can use raw_input by re-entering raw mode. Re-entering is cleaner for UI consistency.
 
         enter_raw_mode();
 
