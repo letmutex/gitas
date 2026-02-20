@@ -115,7 +115,7 @@ pub fn raw_select(prompt: &str, items: &[String], default: usize) -> Option<usiz
                 raw_clear_lines(&mut stdout, prev_lines);
                 return Some(pos);
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 raw_clear_lines(&mut stdout, prev_lines);
                 return None;
             }
@@ -162,7 +162,7 @@ pub fn raw_confirm(prompt: &str, default: bool) -> Option<bool> {
                 raw_clear_lines(&mut stdout, 1);
                 return Some(default);
             }
-            KeyCode::Esc => {
+            KeyCode::Esc | KeyCode::Char('q') => {
                 raw_clear_lines(&mut stdout, 1);
                 return None;
             }
