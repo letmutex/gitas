@@ -98,31 +98,32 @@ pub fn raw_select(prompt: &str, items: &[String], default: usize) -> Option<usiz
         raw_render_lines(&mut stdout, &lines, prev_lines);
         prev_lines = lines.len();
 
-        if let Ok(Event::Key(key)) = event::read() {
-            if key.kind != KeyEventKind::Press {
-                continue;
+        let Ok(Event::Key(key)) = event::read() else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                pos = if pos == 0 { items.len() - 1 } else { pos - 1 };
             }
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    pos = if pos == 0 { items.len() - 1 } else { pos - 1 };
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    pos = (pos + 1) % items.len();
-                }
-                KeyCode::Enter => {
-                    raw_clear_lines(&mut stdout, prev_lines);
-                    return Some(pos);
-                }
-                KeyCode::Esc => {
-                    raw_clear_lines(&mut stdout, prev_lines);
-                    return None;
-                }
-                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                    raw_clear_lines(&mut stdout, prev_lines);
-                    return None;
-                }
-                _ => {}
+            KeyCode::Down | KeyCode::Char('j') => {
+                pos = (pos + 1) % items.len();
             }
+            KeyCode::Enter => {
+                raw_clear_lines(&mut stdout, prev_lines);
+                return Some(pos);
+            }
+            KeyCode::Esc => {
+                raw_clear_lines(&mut stdout, prev_lines);
+                return None;
+            }
+            KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                raw_clear_lines(&mut stdout, prev_lines);
+                return None;
+            }
+            _ => {}
         }
     }
 }
@@ -142,33 +143,34 @@ pub fn raw_confirm(prompt: &str, default: bool) -> Option<bool> {
     stdout.flush().ok();
 
     loop {
-        if let Ok(Event::Key(key)) = event::read() {
-            if key.kind != KeyEventKind::Press {
-                continue;
+        let Ok(Event::Key(key)) = event::read() else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        match key.code {
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                raw_clear_lines(&mut stdout, 1);
+                return Some(true);
             }
-            match key.code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => {
-                    raw_clear_lines(&mut stdout, 1);
-                    return Some(true);
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') => {
-                    raw_clear_lines(&mut stdout, 1);
-                    return Some(false);
-                }
-                KeyCode::Enter => {
-                    raw_clear_lines(&mut stdout, 1);
-                    return Some(default);
-                }
-                KeyCode::Esc => {
-                    raw_clear_lines(&mut stdout, 1);
-                    return None;
-                }
-                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                    raw_clear_lines(&mut stdout, 1);
-                    return None;
-                }
-                _ => {}
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                raw_clear_lines(&mut stdout, 1);
+                return Some(false);
             }
+            KeyCode::Enter => {
+                raw_clear_lines(&mut stdout, 1);
+                return Some(default);
+            }
+            KeyCode::Esc => {
+                raw_clear_lines(&mut stdout, 1);
+                return None;
+            }
+            KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                raw_clear_lines(&mut stdout, 1);
+                return None;
+            }
+            _ => {}
         }
     }
 }
@@ -192,52 +194,53 @@ pub fn raw_input(prompt: &str, default: &str) -> Option<String> {
         .ok();
         stdout.flush().ok();
 
-        if let Ok(Event::Key(key)) = event::read() {
-            if key.kind != KeyEventKind::Press {
-                continue;
+        let Ok(Event::Key(key)) = event::read() else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        match key.code {
+            KeyCode::Enter => {
+                crossterm::queue!(
+                    stdout,
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(ClearType::CurrentLine),
+                )
+                .ok();
+                execute!(stdout, cursor::Hide).ok();
+                return Some(value);
             }
-            match key.code {
-                KeyCode::Enter => {
-                    crossterm::queue!(
-                        stdout,
-                        cursor::MoveToColumn(0),
-                        terminal::Clear(ClearType::CurrentLine),
-                    )
-                    .ok();
-                    execute!(stdout, cursor::Hide).ok();
-                    return Some(value);
-                }
-                KeyCode::Esc => {
-                    crossterm::queue!(
-                        stdout,
-                        cursor::MoveToColumn(0),
-                        terminal::Clear(ClearType::CurrentLine),
-                    )
-                    .ok();
-                    execute!(stdout, cursor::Hide).ok();
-                    return None;
-                }
-                KeyCode::Backspace => {
-                    value.pop();
-                }
-                KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                    value.clear();
-                }
-                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                    crossterm::queue!(
-                        stdout,
-                        cursor::MoveToColumn(0),
-                        terminal::Clear(ClearType::CurrentLine),
-                    )
-                    .ok();
-                    execute!(stdout, cursor::Hide).ok();
-                    return None;
-                }
-                KeyCode::Char(c) => {
-                    value.push(c);
-                }
-                _ => {}
+            KeyCode::Esc => {
+                crossterm::queue!(
+                    stdout,
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(ClearType::CurrentLine),
+                )
+                .ok();
+                execute!(stdout, cursor::Hide).ok();
+                return None;
             }
+            KeyCode::Backspace => {
+                value.pop();
+            }
+            KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                value.clear();
+            }
+            KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                crossterm::queue!(
+                    stdout,
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(ClearType::CurrentLine),
+                )
+                .ok();
+                execute!(stdout, cursor::Hide).ok();
+                return None;
+            }
+            KeyCode::Char(c) => {
+                value.push(c);
+            }
+            _ => {}
         }
     }
 }
@@ -261,52 +264,53 @@ pub fn raw_password(prompt: &str) -> Option<String> {
         .ok();
         stdout.flush().ok();
 
-        if let Ok(Event::Key(key)) = event::read() {
-            if key.kind != KeyEventKind::Press {
-                continue;
+        let Ok(Event::Key(key)) = event::read() else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        match key.code {
+            KeyCode::Enter => {
+                crossterm::queue!(
+                    stdout,
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(ClearType::CurrentLine),
+                )
+                .ok();
+                execute!(stdout, cursor::Hide).ok();
+                return Some(value);
             }
-            match key.code {
-                KeyCode::Enter => {
-                    crossterm::queue!(
-                        stdout,
-                        cursor::MoveToColumn(0),
-                        terminal::Clear(ClearType::CurrentLine),
-                    )
-                    .ok();
-                    execute!(stdout, cursor::Hide).ok();
-                    return Some(value);
-                }
-                KeyCode::Esc => {
-                    crossterm::queue!(
-                        stdout,
-                        cursor::MoveToColumn(0),
-                        terminal::Clear(ClearType::CurrentLine),
-                    )
-                    .ok();
-                    execute!(stdout, cursor::Hide).ok();
-                    return None;
-                }
-                KeyCode::Backspace => {
-                    value.pop();
-                }
-                KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                    value.clear();
-                }
-                KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
-                    crossterm::queue!(
-                        stdout,
-                        cursor::MoveToColumn(0),
-                        terminal::Clear(ClearType::CurrentLine),
-                    )
-                    .ok();
-                    execute!(stdout, cursor::Hide).ok();
-                    return None;
-                }
-                KeyCode::Char(c) => {
-                    value.push(c);
-                }
-                _ => {}
+            KeyCode::Esc => {
+                crossterm::queue!(
+                    stdout,
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(ClearType::CurrentLine),
+                )
+                .ok();
+                execute!(stdout, cursor::Hide).ok();
+                return None;
             }
+            KeyCode::Backspace => {
+                value.pop();
+            }
+            KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                value.clear();
+            }
+            KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
+                crossterm::queue!(
+                    stdout,
+                    cursor::MoveToColumn(0),
+                    terminal::Clear(ClearType::CurrentLine),
+                )
+                .ok();
+                execute!(stdout, cursor::Hide).ok();
+                return None;
+            }
+            KeyCode::Char(c) => {
+                value.push(c);
+            }
+            _ => {}
         }
     }
 }

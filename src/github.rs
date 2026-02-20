@@ -49,18 +49,19 @@ pub fn login() -> Option<(String, String, Option<String>, String)> {
             ("scope", "read:user user:email repo workflow"),
         ]);
 
-    let device_res: DeviceCodeResponse = match res {
-        Ok(mut r) if r.status().is_success() => match r.body_mut().read_json() {
-            Ok(json) => json,
-            Err(_) => {
-                println!("  {}", "Failed to parse GitHub response.".red());
-                return None;
-            }
-        },
-        _ => {
-            println!("  {}", "Failed to connect to GitHub.".red());
-            return None;
-        }
+    let Ok(mut r) = res else {
+        println!("  {}", "Failed to connect to GitHub.".red());
+        return None;
+    };
+
+    if !r.status().is_success() {
+        println!("  {}", "Failed to connect to GitHub.".red());
+        return None;
+    }
+
+    let Ok(device_res) = r.body_mut().read_json::<DeviceCodeResponse>() else {
+        println!("  {}", "Failed to parse GitHub response.".red());
+        return None;
     };
 
     println!();
@@ -94,59 +95,66 @@ pub fn login() -> Option<(String, String, Option<String>, String)> {
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ]);
 
-        let json_res: Option<TokenResponse> = match token_res {
-            Ok(mut r) => r.body_mut().read_json().ok(),
-            Err(_) => None,
+        let Ok(mut r) = token_res else { continue };
+        let Ok(json) = r.body_mut().read_json::<TokenResponse>() else {
+            continue;
         };
 
-        if let Some(json) = json_res {
-            if let Some(token) = json.access_token {
-                // Success! Fetch user info
-                let user_res = agent
-                    .get("https://api.github.com/user")
-                    .header("Authorization", format!("Bearer {}", token))
-                    .call();
+        if let Some(token) = json.access_token {
+            // Success! Fetch user info
+            let user_res = agent
+                .get("https://api.github.com/user")
+                .header("Authorization", format!("Bearer {}", token))
+                .call();
 
-                if let Ok(mut ur) = user_res
-                    && ur.status().is_success()
-                    && let Ok(user) = ur.body_mut().read_json::<UserResponse>()
-                {
-                    // Always fetch emails to find the noreply one
-                    let emails_res = agent
-                        .get("https://api.github.com/user/emails")
-                        .header("Authorization", format!("Bearer {}", token))
-                        .call();
+            let Ok(mut ur) = user_res else {
+                println!("  {}", "Failed to fetch user info.".red());
+                return None;
+            };
 
-                    let email = if let Ok(mut er) = emails_res
-                        && er.status().is_success()
-                        && let Ok(emails) = er.body_mut().read_json::<Vec<EmailResponse>>()
-                    {
-                        // 1. Try to find a noreply address
-                        // 2. Fallback to primary address
-                        // 3. Fallback to the first one found
-                        emails
-                            .iter()
-                            .find(|e| e.email.contains("noreply.github.com"))
-                            .or_else(|| emails.iter().find(|e| e.primary))
-                            .or_else(|| emails.first())
-                            .map(|e| e.email.clone())
-                            .unwrap_or_else(|| user.email.unwrap_or_default())
-                    } else {
-                        user.email.unwrap_or_default()
-                    };
-
-                    return Some((user.login, email, user.name, token));
-                }
+            if !ur.status().is_success() {
                 println!("  {}", "Failed to fetch user info.".red());
                 return None;
             }
-            if let Some(error) = json.error
-                && error != "authorization_pending"
-                && error != "slow_down"
-            {
-                println!("  Error: {}", error.red());
+
+            let Ok(user) = ur.body_mut().read_json::<UserResponse>() else {
+                println!("  {}", "Failed to fetch user info.".red());
                 return None;
-            }
+            };
+
+            // Always fetch emails to find the noreply one
+            let emails_res = agent
+                .get("https://api.github.com/user/emails")
+                .header("Authorization", format!("Bearer {}", token))
+                .call();
+
+            let email = if let Ok(mut er) = emails_res
+                && er.status().is_success()
+                && let Ok(emails) = er.body_mut().read_json::<Vec<EmailResponse>>()
+            {
+                // 1. Try to find a noreply address
+                // 2. Fallback to primary address
+                // 3. Fallback to the first one found
+                emails
+                    .iter()
+                    .find(|e| e.email.contains("noreply.github.com"))
+                    .or_else(|| emails.iter().find(|e| e.primary))
+                    .or_else(|| emails.first())
+                    .map(|e| e.email.clone())
+                    .unwrap_or_else(|| user.email.unwrap_or_default())
+            } else {
+                user.email.unwrap_or_default()
+            };
+
+            return Some((user.login, email, user.name, token));
+        }
+
+        if let Some(error) = json.error
+            && error != "authorization_pending"
+            && error != "slow_down"
+        {
+            println!("  Error: {}", error.red());
+            return None;
         }
     }
 }

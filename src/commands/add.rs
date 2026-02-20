@@ -39,71 +39,67 @@ pub fn run(config: &mut Config) {
 
 fn add_github(config: &mut Config) {
     // Normal terminal mode
-    if let Some((username, email, _name, token)) = github::login() {
-        println!(
-            "  Authenticated as: {} <{}>",
-            username.cyan(),
-            email.dimmed()
+    let Some((username, email, _name, token)) = github::login() else {
+        return;
+    };
+
+    println!(
+        "  Authenticated as: {} <{}>",
+        username.cyan(),
+        email.dimmed()
+    );
+
+    // We could re-enter raw mode here for the alias input, but mixing modes is complex.
+    // Let's stick to standard input for consistency within this flow since we already left raw mode.
+
+    enter_raw_mode();
+
+    let alias = raw_input("Alias (optional)", "").unwrap_or_default();
+    let alias = if alias.is_empty() { None } else { Some(alias) };
+
+    // Check for duplicate
+    let existing_idx = config
+        .accounts
+        .iter()
+        .position(|a| a.username == username && a.alias == alias);
+
+    if existing_idx.is_some() {
+        let prompt = format!(
+            "Account '{}' (alias: {}) already exists. Overwrite?",
+            username.yellow(),
+            alias.as_deref().unwrap_or("none").yellow()
         );
 
-        // We could re-enter raw mode here for the alias input, but mixing modes is complex.
-        // Let's stick to standard input for consistency within this flow since we already left raw mode.
-
-        enter_raw_mode();
-
-        let alias = raw_input("Alias (optional)", "").unwrap_or_default();
-        let alias = if alias.is_empty() { None } else { Some(alias) };
-
-        // Check for duplicate
-        let existing_idx = config
-            .accounts
-            .iter()
-            .position(|a| a.username == username && a.alias == alias);
-
-        if existing_idx.is_some() {
-            let prompt = format!(
-                "Account '{}' (alias: {}) already exists. Overwrite?",
-                username.yellow(),
-                alias.as_deref().unwrap_or("none").yellow()
-            );
-
-            match raw_confirm(&prompt, false) {
-                Some(true) => {}
-                _ => {
-                    raw_println(&format!("\n  {}\n", "Cancelled.".dimmed()));
-                    exit_raw_mode();
-                    return;
-                }
-            }
+        if raw_confirm(&prompt, false) != Some(true) {
+            raw_println(&format!("\n  {}\n", "Cancelled.".dimmed()));
+            exit_raw_mode();
+            return;
         }
-
-        let account = Account {
-            username: username.clone(),
-            email,
-            alias: alias.clone(),
-            host: None,
-        };
-
-        set_token(&username, alias.as_deref(), &token);
-
-        if let Some(idx) = existing_idx {
-            upsert_account_raw(config, account, Some(idx));
-        } else {
-            upsert_account_raw(config, account, None);
-        }
-        exit_raw_mode();
     }
+
+    let account = Account {
+        username: username.clone(),
+        email,
+        alias: alias.clone(),
+        host: None,
+    };
+
+    set_token(&username, alias.as_deref(), &token);
+
+    if let Some(idx) = existing_idx {
+        upsert_account_raw(config, account, Some(idx));
+    } else {
+        upsert_account_raw(config, account, None);
+    }
+    exit_raw_mode();
 }
 
 fn add_manual(config: &mut Config) {
-    let username = match raw_input("Username", "") {
-        Some(u) if !u.is_empty() => u,
-        _ => return,
+    let Some(username) = raw_input("Username", "").filter(|u| !u.is_empty()) else {
+        return;
     };
-
-    let email = match raw_input("Email", "") {
-        Some(e) if !e.is_empty() => e,
-        _ => return,
+    let Some(email) = raw_input("Email", "").filter(|e| !e.is_empty()) else {
+        return;
     };
 
     let alias = raw_input("Alias (optional)", "").unwrap_or_default();
@@ -122,12 +118,9 @@ fn add_manual(config: &mut Config) {
             alias.as_deref().unwrap_or("none").yellow()
         );
 
-        match raw_confirm(&prompt, false) {
-            Some(true) => {}
-            _ => {
-                raw_println(&format!("\n  {}\n", "Cancelled.".dimmed()));
-                return;
-            }
+        if raw_confirm(&prompt, false) != Some(true) {
+            raw_println(&format!("\n  {}\n", "Cancelled.".dimmed()));
+            return;
         }
     }
 
