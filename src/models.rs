@@ -21,18 +21,21 @@ pub struct Config {
     pub accounts: Vec<Account>,
 }
 
-fn config_path() -> PathBuf {
-    let config_dir = dirs::config_dir()
-        .expect("Could not determine config directory")
-        .join("gitas");
-    fs::create_dir_all(&config_dir).expect("Could not create config directory");
-    config_dir.join("accounts.json")
+fn config_path() -> &'static PathBuf {
+    static CONFIG_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    CONFIG_PATH.get_or_init(|| {
+        let config_dir = dirs::config_dir()
+            .expect("Could not determine config directory")
+            .join("gitas");
+        fs::create_dir_all(&config_dir).expect("Could not create config directory");
+        config_dir.join("accounts.json")
+    })
 }
 
 pub fn load_config() -> Config {
     let path = config_path();
     if path.exists() {
-        let data = fs::read_to_string(&path).expect("Could not read config file");
+        let data = fs::read_to_string(path).expect("Could not read config file");
         serde_json::from_str(&data).unwrap_or_default()
     } else {
         Config::default()
@@ -42,7 +45,7 @@ pub fn load_config() -> Config {
 pub fn save_config(config: &Config) {
     let path = config_path();
     let data = serde_json::to_string_pretty(config).expect("Could not serialize config");
-    fs::write(&path, data).expect("Could not write config file");
+    fs::write(path, data).expect("Could not write config file");
 }
 
 /// Helper to construct the keychain entry key

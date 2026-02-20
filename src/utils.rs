@@ -42,12 +42,12 @@ pub fn git_config_unset(key: &str, scope: &str) {
 }
 
 pub fn git_config_get(key: &str, scope: &str) -> Option<String> {
-    let args = match scope {
-        "local" => vec!["config", "--local", "--get", key],
-        "global" => vec!["config", "--global", "--get", key],
-        _ => vec!["config", "--get", key], // effective (local > global)
+    let args: &[&str] = match scope {
+        "local" => &["config", "--local", "--get", key],
+        "global" => &["config", "--global", "--get", key],
+        _ => &["config", "--get", key], // effective (local > global)
     };
-    let output = Command::new("git").args(&args).output().ok()?;
+    let output = Command::new("git").args(args).output().ok()?;
     if output.status.success() {
         let val = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if val.is_empty() { None } else { Some(val) }
