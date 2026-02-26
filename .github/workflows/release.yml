@@ -69,6 +69,12 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Setup cross-toolchain (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: ${{ matrix.target }}
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
