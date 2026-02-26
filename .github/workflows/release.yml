@@ -37,6 +37,14 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: gitas
             asset_suffix: macos-arm64.tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact_name: gitas
+            asset_suffix: linux-arm64.tar.gz
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact_name: gitas.exe
+            asset_suffix: windows-arm64.zip
 
     steps:
       - uses: actions/checkout@v4
