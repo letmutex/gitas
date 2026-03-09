@@ -6,18 +6,35 @@ Git Account Switch / Git As
 
 ## Installation
 
+### macOS / Linux
+
 ```bash
-# Install Script (Linux & macOS)
+# Install Script (default: ~/.gitas/bin)
 curl -fsSL https://raw.githubusercontent.com/letmutex/gitas/main/install.sh | sh
 
-# Install Script (Windows PowerShell)
+# System-wide install (requires sudo)
+curl -fsSL https://raw.githubusercontent.com/letmutex/gitas/main/install.sh | sudo INSTALL_DIR=/usr/local/bin sh
+
+# Custom install directory
+curl -fsSL https://raw.githubusercontent.com/letmutex/gitas/main/install.sh | INSTALL_DIR=~/.local/bin sh
+```
+
+### Windows
+
+```bash
+# Install Script (PowerShell)
 irm https://raw.githubusercontent.com/letmutex/gitas/main/install.ps1 | iex
+```
 
-# Homebrew
-brew tap letmutex/tap
-brew install gitas
+### Homebrew
 
-# Cargo
+```bash
+brew install letmutex/tap/gitas
+```
+
+### Cargo
+
+```bash
 cargo install gitas
 ```
 
@@ -53,6 +70,9 @@ gitas git clone <url>
 ```bash
 # Linux / macOS (Install Script)
 rm -rf ~/.gitas
+
+# System-wide install
+sudo rm -f /usr/local/bin/gitas
 
 # Windows (PowerShell Install Script)
 Remove-Item -Path "$env:LOCALAPPDATA\gitas" -Recurse -Force

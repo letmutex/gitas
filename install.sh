@@ -73,7 +73,17 @@ if [ "$OS" = "windows" ]; then
 fi
 
 # Unix specific handling (Linux/macOS)
-INSTALL_DIR="$HOME/.gitas/bin"
+if [ -z "$INSTALL_DIR" ]; then
+    INSTALL_DIR="$HOME/.gitas/bin"
+fi
+
+if [ ! -w "$INSTALL_DIR" ]; then
+    echo "Error: $INSTALL_DIR is not writable."
+    echo "Try: sudo curl -fsSL ... | INSTALL_DIR=/usr/local/bin sh"
+    echo "Or:  curl -fsSL ... | INSTALL_DIR=~/.local/bin sh"
+    exit 1
+fi
+
 mkdir -p "$INSTALL_DIR"
 
 TEMP_DIR=$(mktemp -d)
@@ -105,7 +115,17 @@ case "$SHELL_TYPE" in
         ;;
 esac
 
-if [ -n "$PROFILE" ]; then
+# Path update logic (skip for system-wide installs)
+SKIP_PATH=0
+if [ -n "$INSTALL_DIR" ]; then
+    case "$INSTALL_DIR" in
+        /usr/local/bin|/usr/bin|/bin)
+            SKIP_PATH=1
+            ;;
+    esac
+fi
+
+if [ $SKIP_PATH -eq 0 ] && [ -n "$PROFILE" ]; then
     if ! grep -q "$INSTALL_DIR" "$PROFILE"; then
         echo "Adding $INSTALL_DIR to PATH in $PROFILE"
         echo "" >> "$PROFILE"
