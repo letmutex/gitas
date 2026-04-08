@@ -439,6 +439,7 @@ impl<'a> ListState<'a> {
         git_config_set(&cred_key, &account.username, scope);
 
         let mut status_lines = Vec::new();
+        let mut has_status_issue = false;
 
         if let Some(token) = crate::models::get_token(&account.username, account.alias.as_deref())
             .filter(|t| !t.is_empty())
@@ -453,6 +454,7 @@ impl<'a> ListState<'a> {
             }
 
             if let Some(warning) = crate::utils::check_credential_helper() {
+                has_status_issue = true;
                 status_lines.push(warning);
             }
 
@@ -460,6 +462,7 @@ impl<'a> ListState<'a> {
             git_credential_reject(host);
             git_credential_approve(&account.username, &token, host, url.as_deref());
         } else {
+            has_status_issue = true;
             status_lines.push(format!(
                 "  {} No token found for {}. Git may prompt for authentication.",
                 "⚠".yellow(),
@@ -475,10 +478,7 @@ impl<'a> ListState<'a> {
             scope.green()
         ));
 
-        raw_show_status(
-            &status_lines,
-            if status_lines.len() > 3 { 2500 } else { 1500 },
-        );
+        raw_show_status(&status_lines, has_status_issue);
         true
     }
 
