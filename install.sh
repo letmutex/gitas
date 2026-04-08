@@ -77,14 +77,19 @@ if [ -z "$INSTALL_DIR" ]; then
     INSTALL_DIR="$HOME/.gitas/bin"
 fi
 
-if [ ! -w "$INSTALL_DIR" ]; then
-    echo "Error: $INSTALL_DIR is not writable."
+if ! mkdir -p "$INSTALL_DIR"; then
+    echo "Error: Could not create $INSTALL_DIR."
     echo "Try: sudo curl -fsSL ... | INSTALL_DIR=/usr/local/bin sh"
     echo "Or:  curl -fsSL ... | INSTALL_DIR=~/.local/bin sh"
     exit 1
 fi
 
-mkdir -p "$INSTALL_DIR"
+if [ ! -d "$INSTALL_DIR" ] || [ ! -w "$INSTALL_DIR" ]; then
+    echo "Error: $INSTALL_DIR is not writable."
+    echo "Try: sudo curl -fsSL ... | INSTALL_DIR=/usr/local/bin sh"
+    echo "Or:  curl -fsSL ... | INSTALL_DIR=~/.local/bin sh"
+    exit 1
+fi
 
 TEMP_DIR=$(mktemp -d)
 echo "Downloading to $TEMP_DIR..."
