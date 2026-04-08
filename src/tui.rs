@@ -8,6 +8,28 @@ use crossterm::{
 use std::io::{Write, stdout};
 use std::time::{Duration, Instant};
 
+fn prev_char_boundary(value: &str, index: usize) -> usize {
+    value[..index].char_indices().last().map_or(0, |(i, _)| i)
+}
+
+fn next_char_boundary(value: &str, index: usize) -> usize {
+    if index >= value.len() {
+        value.len()
+    } else {
+        value[index..]
+            .chars()
+            .next()
+            .map_or(value.len(), |c| index + c.len_utf8())
+    }
+}
+
+fn input_cursor_column(prompt: &str, value: &str, cursor_index: usize) -> u16 {
+    let prefix = format!("  {}: ", prompt);
+    let prefix_width = prefix.chars().count();
+    let cursor_width = value[..cursor_index].chars().count();
+    (prefix_width + cursor_width) as u16
+}
+
 fn status_display_duration_ms(line_count: usize, has_issue: bool) -> u64 {
     if has_issue {
         5000
@@ -190,6 +212,7 @@ pub fn raw_confirm(prompt: &str, default: bool) -> Option<bool> {
 pub fn raw_input(prompt: &str, default: &str) -> Option<String> {
     let mut stdout = stdout();
     let mut value = default.to_string();
+    let mut cursor_index = value.len();
 
     // Show cursor while typing
     execute!(stdout, cursor::Show).ok();
@@ -201,6 +224,7 @@ pub fn raw_input(prompt: &str, default: &str) -> Option<String> {
             cursor::MoveToColumn(0),
             terminal::Clear(ClearType::CurrentLine),
             crossterm::style::Print(&display),
+            cursor::MoveToColumn(input_cursor_column(prompt, &value, cursor_index)),
         )
         .ok();
         stdout.flush().ok();
@@ -233,10 +257,37 @@ pub fn raw_input(prompt: &str, default: &str) -> Option<String> {
                 return None;
             }
             KeyCode::Backspace => {
-                value.pop();
+                if cursor_index > 0 {
+                    let prev_index = prev_char_boundary(&value, cursor_index);
+                    value.drain(prev_index..cursor_index);
+                    cursor_index = prev_index;
+                }
+            }
+            KeyCode::Delete => {
+                if cursor_index < value.len() {
+                    let next_index = next_char_boundary(&value, cursor_index);
+                    value.drain(cursor_index..next_index);
+                }
+            }
+            KeyCode::Left => {
+                if cursor_index > 0 {
+                    cursor_index = prev_char_boundary(&value, cursor_index);
+                }
+            }
+            KeyCode::Right => {
+                if cursor_index < value.len() {
+                    cursor_index = next_char_boundary(&value, cursor_index);
+                }
+            }
+            KeyCode::Home => {
+                cursor_index = 0;
+            }
+            KeyCode::End => {
+                cursor_index = value.len();
             }
             KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                 value.clear();
+                cursor_index = 0;
             }
             KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                 crossterm::queue!(
@@ -249,7 +300,8 @@ pub fn raw_input(prompt: &str, default: &str) -> Option<String> {
                 return None;
             }
             KeyCode::Char(c) => {
-                value.push(c);
+                value.insert(cursor_index, c);
+                cursor_index += c.len_utf8();
             }
             _ => {}
         }
@@ -260,6 +312,7 @@ pub fn raw_input(prompt: &str, default: &str) -> Option<String> {
 pub fn raw_password(prompt: &str) -> Option<String> {
     let mut stdout = stdout();
     let mut value = String::new();
+    let mut cursor_index = 0;
 
     execute!(stdout, cursor::Show).ok();
 
@@ -271,6 +324,7 @@ pub fn raw_password(prompt: &str) -> Option<String> {
             cursor::MoveToColumn(0),
             terminal::Clear(ClearType::CurrentLine),
             crossterm::style::Print(&display),
+            cursor::MoveToColumn(input_cursor_column(prompt, &mask, cursor_index)),
         )
         .ok();
         stdout.flush().ok();
@@ -303,10 +357,37 @@ pub fn raw_password(prompt: &str) -> Option<String> {
                 return None;
             }
             KeyCode::Backspace => {
-                value.pop();
+                if cursor_index > 0 {
+                    let prev_index = prev_char_boundary(&value, cursor_index);
+                    value.drain(prev_index..cursor_index);
+                    cursor_index = prev_index;
+                }
+            }
+            KeyCode::Delete => {
+                if cursor_index < value.len() {
+                    let next_index = next_char_boundary(&value, cursor_index);
+                    value.drain(cursor_index..next_index);
+                }
+            }
+            KeyCode::Left => {
+                if cursor_index > 0 {
+                    cursor_index = prev_char_boundary(&value, cursor_index);
+                }
+            }
+            KeyCode::Right => {
+                if cursor_index < value.len() {
+                    cursor_index = next_char_boundary(&value, cursor_index);
+                }
+            }
+            KeyCode::Home => {
+                cursor_index = 0;
+            }
+            KeyCode::End => {
+                cursor_index = value.len();
             }
             KeyCode::Char('u') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                 value.clear();
+                cursor_index = 0;
             }
             KeyCode::Char('c') if key.modifiers.contains(event::KeyModifiers::CONTROL) => {
                 crossterm::queue!(
@@ -319,7 +400,8 @@ pub fn raw_password(prompt: &str) -> Option<String> {
                 return None;
             }
             KeyCode::Char(c) => {
-                value.push(c);
+                value.insert(cursor_index, c);
+                cursor_index += c.len_utf8();
             }
             _ => {}
         }
