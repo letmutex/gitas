@@ -6,6 +6,17 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 use std::io::{Write, stdout};
+use std::time::{Duration, Instant};
+
+fn status_display_duration_ms(line_count: usize, has_issue: bool) -> u64 {
+    if has_issue {
+        5000
+    } else if line_count > 3 {
+        2500
+    } else {
+        1500
+    }
+}
 
 /// Enter raw mode and hide cursor.
 pub fn enter_raw_mode() {
@@ -316,7 +327,7 @@ pub fn raw_password(prompt: &str) -> Option<String> {
 }
 
 /// Show status message lines, sleep, then clear them.
-pub fn raw_show_status(lines: &[String], duration_ms: u64) {
+pub fn raw_show_status(lines: &[String], has_issue: bool) {
     let mut stdout = stdout();
 
     for line in lines {
@@ -329,6 +340,27 @@ pub fn raw_show_status(lines: &[String], duration_ms: u64) {
     }
     stdout.flush().ok();
 
-    std::thread::sleep(std::time::Duration::from_millis(duration_ms));
+    let duration = Duration::from_millis(status_display_duration_ms(lines.len(), has_issue));
+    let start = Instant::now();
+
+    while start.elapsed() < duration {
+        let remaining = duration.saturating_sub(start.elapsed());
+        let poll_timeout = remaining.min(Duration::from_millis(100));
+
+        let Ok(has_event) = event::poll(poll_timeout) else {
+            continue;
+        };
+        if !has_event {
+            continue;
+        }
+
+        let Ok(Event::Key(key)) = event::read() else {
+            continue;
+        };
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Enter {
+            break;
+        }
+    }
+
     raw_clear_lines(&mut stdout, lines.len());
 }
