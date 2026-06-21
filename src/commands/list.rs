@@ -208,7 +208,7 @@ impl<'a> ListState<'a> {
         frame.push(format!(
             "  {} {} {}",
             "GITAS".bold(),
-            "(GitHub Account Switch)".dimmed(),
+            "(Git Account Switch)".dimmed(),
             format!("v{}", VERSION).dimmed()
         ));
         frame.push(format!(
