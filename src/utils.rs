@@ -341,7 +341,7 @@ pub fn scan_ssh_keys(
 
         let pub_path = path.with_extension("pub");
         let comment = std::fs::read_to_string(&pub_path).ok().and_then(|content| {
-            let parts: Vec<&str> = content.trim().split_whitespace().collect();
+            let parts: Vec<&str> = content.split_whitespace().collect();
             if parts.len() >= 3 {
                 Some(parts[2..].join(" "))
             } else {
@@ -354,7 +354,7 @@ pub fn scan_ssh_keys(
             None => filename.clone(),
         };
 
-        let matches = comment.as_ref().map_or(false, |c| {
+        let matches = comment.as_ref().is_some_and(|c| {
             let c_lower = c.to_lowercase();
             let u_lower = target_username.to_lowercase();
             let e_lower = target_email.to_lowercase();
@@ -363,7 +363,7 @@ pub fn scan_ssh_keys(
                 || c_lower == u_lower
                 || c_lower
                     .find('@')
-                    .map_or(false, |idx| c_lower[..idx] == u_lower)
+                    .is_some_and(|idx| c_lower[..idx] == u_lower)
         });
 
         if matches {
