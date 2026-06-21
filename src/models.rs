@@ -14,6 +14,8 @@ pub struct Account {
     pub alias: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh_key: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

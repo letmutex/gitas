@@ -424,33 +424,37 @@ impl<'a> ListState<'a> {
     }
 
     fn apply_switch(&self, account: &crate::models::Account, scope: &str) -> bool {
-        git_config_set("user.name", &account.username, scope);
-        git_config_set("user.email", &account.email, scope);
-
-        if let Some(alias) = &account.alias {
-            git_config_set("gitas.alias", alias, scope);
-        } else {
-            git_config_unset("gitas.alias", scope);
-        }
-
-        // Enforce the correct username for the credential helper (fixes "sticky" tokens)
-        let host = account.host.as_deref().unwrap_or("github.com");
-        let cred_key = format!("credential.https://{}.username", host);
-        git_config_set(&cred_key, &account.username, scope);
-
         let mut status_lines = Vec::new();
         let mut has_status_issue = false;
 
+        let host = account.host.as_deref().unwrap_or("github.com");
+        let mut target_url = None;
+
+        // Check authentication BEFORE making any git config changes
         if let Some(token) = crate::models::get_token(&account.username, account.alias.as_deref())
             .filter(|t| !t.is_empty())
         {
-            let host = account.host.as_deref().unwrap_or("github.com");
-            let url = (scope == "local")
-                .then(|| git_config_get("remote.origin.url", "local"))
-                .flatten();
-
-            if scope == "local" && url.is_some() {
-                git_config_set("credential.useHttpPath", "true", "local");
+            if scope == "local" {
+                let remotes = crate::utils::get_http_remotes();
+                if remotes.is_empty() {
+                    status_lines.push(format!(
+                        "  {} No HTTP remotes found. Token authentication may fail.",
+                        "⚠".yellow()
+                    ));
+                    has_status_issue = true;
+                } else if remotes.len() == 1 {
+                    target_url = Some(remotes[0].url.clone());
+                } else {
+                    let items: Vec<String> = remotes
+                        .iter()
+                        .map(|r| format!("{} ({})", r.name, r.url))
+                        .collect();
+                    if let Some(selection) = raw_select("Select remote for token auth", &items, 0) {
+                        target_url = Some(remotes[selection].url.clone());
+                    } else {
+                        return false;
+                    }
+                }
             }
 
             if let Some(warning) = crate::utils::check_credential_helper() {
@@ -460,8 +464,25 @@ impl<'a> ListState<'a> {
 
             // Clear any potentially conflicting credentials
             git_credential_reject(host);
-            git_credential_approve(&account.username, &token, host, url.as_deref());
-        } else {
+            if let Err(e) =
+                git_credential_approve(&account.username, &token, host, target_url.as_deref())
+            {
+                status_lines.push(format!("  {} {}", "⚠".yellow(), e));
+                status_lines.push(String::new());
+                status_lines.push(format!(
+                    "{}   Aborted switch due to authentication failure",
+                    "✗".red()
+                ));
+                raw_show_status(&status_lines, true);
+                return false;
+            }
+
+            if scope == "local" && target_url.is_some() {
+                git_config_set("credential.useHttpPath", "true", "local");
+            }
+        } else if account.ssh_key.is_none()
+            || (scope == "local" && crate::utils::has_http_remotes())
+        {
             has_status_issue = true;
             status_lines.push(format!(
                 "  {} No token found for {}. Git may prompt for authentication.",
@@ -469,6 +490,29 @@ impl<'a> ListState<'a> {
                 account.username.cyan()
             ));
         }
+
+        // Apply all configuration changes now that auth has succeeded
+        git_config_set("user.name", &account.username, scope);
+        git_config_set("user.email", &account.email, scope);
+
+        if let Some(alias) = &account.alias {
+            git_config_set("gitas.alias", alias, scope);
+        } else {
+            git_config_unset("gitas.alias", scope);
+        }
+
+        if let Some(ssh_key) = &account.ssh_key {
+            git_config_set(
+                "core.sshCommand",
+                &crate::utils::git_ssh_command(ssh_key),
+                scope,
+            );
+        } else if self.current_ssh_command_is_gitas_managed(scope) {
+            git_config_unset("core.sshCommand", scope);
+        }
+
+        let cred_key = format!("credential.https://{}.username", host);
+        git_config_set(&cred_key, &account.username, scope);
 
         status_lines.push(String::new());
         status_lines.push(format!(
@@ -480,6 +524,19 @@ impl<'a> ListState<'a> {
 
         raw_show_status(&status_lines, has_status_issue);
         true
+    }
+
+    fn current_ssh_command_is_gitas_managed(&self, scope: &str) -> bool {
+        let Some(current) = git_config_get("core.sshCommand", scope) else {
+            return false;
+        };
+
+        self.config
+            .accounts
+            .iter()
+            .filter_map(|account| account.ssh_key.as_deref())
+            .map(crate::utils::git_ssh_command)
+            .any(|command| command == current)
     }
 
     fn handle_delete(&mut self) -> bool {
@@ -549,6 +606,11 @@ impl<'a> ListState<'a> {
                         "none"
                     }
                 ),
+                format!(
+                    "{:<15} {}",
+                    "SSH Key:".dimmed(),
+                    temp_account.ssh_key.as_deref().unwrap_or("none")
+                ),
                 "Save Changes".green().to_string(),
                 "Cancel".dimmed().to_string(),
             ];
@@ -598,6 +660,29 @@ impl<'a> ListState<'a> {
                     }
                 }
                 5 => {
+                    let (display_items, paths, default_idx) =
+                        crate::utils::scan_ssh_keys(&temp_account.username, &temp_account.email);
+                    if let Some(selection) =
+                        raw_select("Keys in ~/.ssh", &display_items, default_idx)
+                    {
+                        if selection < paths.len() {
+                            temp_account.ssh_key =
+                                Some(paths[selection].to_string_lossy().to_string());
+                        } else if selection == paths.len() {
+                            let manual = raw_input(
+                                "New SSH Key Path",
+                                temp_account.ssh_key.as_deref().unwrap_or(""),
+                            )
+                            .unwrap_or_default();
+                            temp_account.ssh_key = if manual.is_empty() {
+                                None
+                            } else {
+                                Some(manual)
+                            };
+                        }
+                    }
+                }
+                6 => {
                     if original_username != temp_account.username
                         || original_alias != temp_account.alias
                     {
@@ -620,7 +705,7 @@ impl<'a> ListState<'a> {
                     save_config(self.config);
                     return true;
                 }
-                6 => return false,
+                7 => return false,
                 _ => {}
             }
         }

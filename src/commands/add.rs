@@ -82,6 +82,7 @@ fn add_github(config: &mut Config) {
         email,
         alias: alias.clone(),
         host: None,
+        ssh_key: None,
     };
 
     set_token(&username, alias.as_deref(), &token);
@@ -93,6 +94,8 @@ fn add_github(config: &mut Config) {
     }
     exit_raw_mode();
 }
+
+use crate::utils::scan_ssh_keys;
 
 fn add_manual(config: &mut Config) {
     let Some(username) = raw_input("Username", "").filter(|u| !u.is_empty()) else {
@@ -124,20 +127,49 @@ fn add_manual(config: &mut Config) {
         }
     }
 
-    let token = raw_password("Token/PAT (optional)").unwrap_or_default();
-    let host_in = raw_input("Host", "github.com").unwrap_or_else(|| "github.com".to_string());
-
-    let host = if host_in == "github.com" || host_in.is_empty() {
-        None
-    } else {
-        Some(host_in)
+    let auth_types = vec!["Token/PAT".to_string(), "SSH Key".to_string()];
+    let Some(auth_choice) = raw_select("Authentication Type", &auth_types, 0) else {
+        return;
     };
+
+    let mut token = String::new();
+    let mut host = None;
+    let mut ssh_key = None;
+
+    if auth_choice == 0 {
+        // Token/PAT
+        token = raw_password("Token/PAT (optional)").unwrap_or_default();
+        let host_in = raw_input("Host", "github.com").unwrap_or_else(|| "github.com".to_string());
+        host = if host_in == "github.com" || host_in.is_empty() {
+            None
+        } else {
+            Some(host_in)
+        };
+    } else {
+        // SSH Key
+        let (display_items, paths, default_idx) = scan_ssh_keys(&username, &email);
+        let Some(selection) = raw_select("Keys in ~/.ssh", &display_items, default_idx) else {
+            return;
+        };
+
+        if selection < paths.len() {
+            ssh_key = Some(paths[selection].to_string_lossy().to_string());
+        } else if selection == paths.len() {
+            let manual = raw_input("SSH Key Path", "").unwrap_or_default();
+            ssh_key = if manual.is_empty() {
+                None
+            } else {
+                Some(manual)
+            };
+        }
+    }
 
     let account = Account {
         username: username.clone(),
         email,
         alias: alias.clone(),
         host,
+        ssh_key,
     };
 
     if !token.is_empty() {

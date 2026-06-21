@@ -20,6 +20,13 @@ pub fn run(config: &Config, account_id: Option<String>, args: Vec<String>) {
     cmd.arg("-c").arg(format!("user.name={}", account.username));
     cmd.arg("-c").arg(format!("user.email={}", account.email));
 
+    if let Some(ssh_key) = &account.ssh_key {
+        cmd.arg("-c").arg(format!(
+            "core.sshCommand={}",
+            crate::utils::git_ssh_command(ssh_key)
+        ));
+    }
+
     // Inject inline credential helper if token is available
     match crate::models::get_token(&account.username, account.alias.as_deref()) {
         Some(token) if !token.is_empty() => {
@@ -30,11 +37,13 @@ pub fn run(config: &Config, account_id: Option<String>, args: Vec<String>) {
             ));
         }
         _ => {
-            println!(
-                "  {} No token found for {}. Git may prompt for authentication.",
-                "⚠".yellow(),
-                account.username.cyan()
-            );
+            if account.ssh_key.is_none() || crate::utils::git_args_use_http_transport(&args) {
+                println!(
+                    "  {} No token found for {}. Git may prompt for authentication.",
+                    "⚠".yellow(),
+                    account.username.cyan()
+                );
+            }
         }
     }
 
