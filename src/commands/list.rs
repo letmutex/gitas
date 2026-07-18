@@ -1,5 +1,7 @@
 use crate::models::{Config, save_config};
-use crate::tui::{raw_confirm, raw_input, raw_password, raw_select, raw_show_status};
+use crate::tui::{
+    raw_confirm, raw_input, raw_password, raw_select, raw_show_status, raw_with_loader,
+};
 use crate::utils::{
     git_config_get, git_config_set, git_config_unset, git_credential_approve, git_credential_reject,
 };
@@ -398,7 +400,7 @@ impl<'a> ListState<'a> {
             return false;
         }
 
-        let account = &self.config.accounts[self.cursor];
+        let account = self.config.accounts[self.cursor].clone();
         let local_label = match crate::utils::git_toplevel() {
             Some(path) => format!("local {}", format!("({})", path).dimmed()),
             None => "local".to_string(),
@@ -420,7 +422,7 @@ impl<'a> ListState<'a> {
         }
 
         let scope = if selection == 0 { "global" } else { "local" };
-        self.apply_switch(account, scope)
+        self.apply_switch(&account, scope)
     }
 
     fn apply_switch(&self, account: &crate::models::Account, scope: &str) -> bool {
@@ -429,11 +431,11 @@ impl<'a> ListState<'a> {
 
         let host = account.host.as_deref().unwrap_or("github.com");
         let mut target_url = None;
+        let token = crate::models::get_token(&account.username, account.alias.as_deref())
+            .filter(|token| !token.is_empty());
 
         // Check authentication BEFORE making any git config changes
-        if let Some(token) = crate::models::get_token(&account.username, account.alias.as_deref())
-            .filter(|t| !t.is_empty())
-        {
+        if token.is_some() {
             if scope == "local" {
                 let remotes = crate::utils::get_http_remotes();
                 if remotes.is_empty() {
@@ -461,25 +463,6 @@ impl<'a> ListState<'a> {
                 has_status_issue = true;
                 status_lines.push(warning);
             }
-
-            // Clear any potentially conflicting credentials
-            git_credential_reject(host);
-            if let Err(e) =
-                git_credential_approve(&account.username, &token, host, target_url.as_deref())
-            {
-                status_lines.push(format!("  {} {}", "⚠".yellow(), e));
-                status_lines.push(String::new());
-                status_lines.push(format!(
-                    "{}   Aborted switch due to authentication failure",
-                    "✗".red()
-                ));
-                raw_show_status(&status_lines, true);
-                return false;
-            }
-
-            if scope == "local" && target_url.is_some() {
-                git_config_set("credential.useHttpPath", "true", "local");
-            }
         } else if account.ssh_key.is_none()
             || (scope == "local" && crate::utils::has_http_remotes())
         {
@@ -491,52 +474,79 @@ impl<'a> ListState<'a> {
             ));
         }
 
-        // Apply all configuration changes now that auth has succeeded
-        git_config_set("user.name", &account.username, scope);
-        git_config_set("user.email", &account.email, scope);
+        let account = account.clone();
+        let scope = scope.to_string();
+        let host = host.to_string();
+        let status_username = account.username.clone();
+        let status_scope = scope.clone();
+        let managed_ssh_commands: Vec<String> = self
+            .config
+            .accounts
+            .iter()
+            .filter_map(|account| account.ssh_key.as_deref())
+            .map(crate::utils::git_ssh_command)
+            .collect();
+        let loader_message = format!("Setting account '{}'…", account.username);
 
-        if let Some(alias) = &account.alias {
-            git_config_set("gitas.alias", alias, scope);
-        } else {
-            git_config_unset("gitas.alias", scope);
+        let switch_result = raw_with_loader(&loader_message, move || -> Result<(), String> {
+            if let Some(token) = token {
+                // Clear potentially conflicting credentials before approving this account.
+                git_credential_reject(&host);
+                git_credential_approve(&account.username, &token, &host, target_url.as_deref())?;
+
+                if scope == "local" && target_url.is_some() {
+                    git_config_set("credential.useHttpPath", "true", "local");
+                }
+            }
+
+            // Apply all configuration changes now that auth has succeeded.
+            git_config_set("user.name", &account.username, &scope);
+            git_config_set("user.email", &account.email, &scope);
+
+            if let Some(alias) = &account.alias {
+                git_config_set("gitas.alias", alias, &scope);
+            } else {
+                git_config_unset("gitas.alias", &scope);
+            }
+
+            if let Some(ssh_key) = &account.ssh_key {
+                git_config_set(
+                    "core.sshCommand",
+                    &crate::utils::git_ssh_command(ssh_key),
+                    &scope,
+                );
+            } else if git_config_get("core.sshCommand", &scope)
+                .is_some_and(|current| managed_ssh_commands.contains(&current))
+            {
+                git_config_unset("core.sshCommand", &scope);
+            }
+
+            let cred_key = format!("credential.https://{}.username", host);
+            git_config_set(&cred_key, &account.username, &scope);
+            Ok(())
+        });
+
+        if let Err(error) = switch_result {
+            status_lines.push(format!("  {} {}", "⚠".yellow(), error));
+            status_lines.push(String::new());
+            status_lines.push(format!(
+                "{}   Aborted switch due to authentication failure",
+                "✗".red()
+            ));
+            raw_show_status(&status_lines, true);
+            return false;
         }
-
-        if let Some(ssh_key) = &account.ssh_key {
-            git_config_set(
-                "core.sshCommand",
-                &crate::utils::git_ssh_command(ssh_key),
-                scope,
-            );
-        } else if self.current_ssh_command_is_gitas_managed(scope) {
-            git_config_unset("core.sshCommand", scope);
-        }
-
-        let cred_key = format!("credential.https://{}.username", host);
-        git_config_set(&cred_key, &account.username, scope);
 
         status_lines.push(String::new());
         status_lines.push(format!(
             "{}   Switched to '{}' ({})",
             "✔".green(),
-            account.username.cyan(),
-            scope.green()
+            status_username.cyan(),
+            status_scope.green()
         ));
 
         raw_show_status(&status_lines, has_status_issue);
         true
-    }
-
-    fn current_ssh_command_is_gitas_managed(&self, scope: &str) -> bool {
-        let Some(current) = git_config_get("core.sshCommand", scope) else {
-            return false;
-        };
-
-        self.config
-            .accounts
-            .iter()
-            .filter_map(|account| account.ssh_key.as_deref())
-            .map(crate::utils::git_ssh_command)
-            .any(|command| command == current)
     }
 
     fn handle_delete(&mut self) -> bool {
