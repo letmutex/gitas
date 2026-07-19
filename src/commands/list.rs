@@ -2,9 +2,7 @@ use crate::models::{Config, save_config};
 use crate::tui::{
     raw_confirm, raw_input, raw_password, raw_select, raw_show_status, raw_with_loader,
 };
-use crate::utils::{
-    git_config_get, git_config_set, git_config_unset, git_credential_approve, git_credential_reject,
-};
+use crate::utils::{git_config_get, git_config_set, git_config_unset, git_credential_approve};
 use colored::Colorize;
 use crossterm::{
     cursor,
@@ -488,10 +486,8 @@ impl<'a> ListState<'a> {
             .collect();
         let loader_message = format!("Setting account '{}'…", account.username);
 
-        let switch_result = raw_with_loader(&loader_message, move || -> Result<(), String> {
+        let worker_result = raw_with_loader(&loader_message, move || -> Result<(), String> {
             if let Some(token) = token {
-                // Clear potentially conflicting credentials before approving this account.
-                git_credential_reject(&host);
                 git_credential_approve(&account.username, &token, &host, target_url.as_deref())?;
 
                 if scope == "local" && target_url.is_some() {
@@ -524,6 +520,10 @@ impl<'a> ListState<'a> {
             let cred_key = format!("credential.https://{}.username", host);
             git_config_set(&cred_key, &account.username, &scope);
             Ok(())
+        });
+
+        let switch_result = worker_result.unwrap_or_else(|_| {
+            Err("Account setting failed because the background operation panicked.".to_string())
         });
 
         if let Err(error) = switch_result {

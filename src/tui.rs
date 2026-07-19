@@ -66,7 +66,7 @@ pub fn raw_println(msg: &str) {
 }
 
 /// Run blocking work off the terminal thread while displaying an animated loader.
-pub fn raw_with_loader<T, F>(message: &str, work: F) -> T
+pub fn raw_with_loader<T, F>(message: &str, work: F) -> thread::Result<T>
 where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
@@ -85,7 +85,7 @@ where
     }
 
     if handle.is_finished() {
-        return handle.join().expect("background operation panicked");
+        return handle.join();
     }
 
     let shown_at = Instant::now();
@@ -98,7 +98,7 @@ where
     }
 
     raw_clear_lines(&mut stdout, 1);
-    handle.join().expect("background operation panicked")
+    handle.join()
 }
 
 /// Render lines at current position using per-line clear (flicker-free).
