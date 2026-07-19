@@ -6,6 +6,7 @@ use crossterm::{
     terminal::{self, ClearType},
 };
 use std::io::{Write, stdout};
+use std::thread;
 use std::time::{Duration, Instant};
 
 fn prev_char_boundary(value: &str, index: usize) -> usize {
@@ -62,6 +63,42 @@ pub fn raw_println(msg: &str) {
     )
     .ok();
     stdout.flush().ok();
+}
+
+/// Run blocking work off the terminal thread while displaying an animated loader.
+pub fn raw_with_loader<T, F>(message: &str, work: F) -> thread::Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    const SHOW_DELAY: Duration = Duration::from_millis(100);
+    const MIN_VISIBLE_DURATION: Duration = Duration::from_millis(200);
+    const FRAME_INTERVAL: Duration = Duration::from_millis(80);
+    let handle = thread::spawn(work);
+    let mut stdout = stdout();
+    let mut frame = 0;
+    let started_at = Instant::now();
+
+    while !handle.is_finished() && started_at.elapsed() < SHOW_DELAY {
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    if handle.is_finished() {
+        return handle.join();
+    }
+
+    let shown_at = Instant::now();
+
+    while !handle.is_finished() || shown_at.elapsed() < MIN_VISIBLE_DURATION {
+        let line = format!("  {} {}", FRAMES[frame].cyan(), message);
+        raw_render_lines(&mut stdout, &[line], usize::from(frame > 0));
+        frame = (frame + 1) % FRAMES.len();
+        thread::sleep(FRAME_INTERVAL);
+    }
+
+    raw_clear_lines(&mut stdout, 1);
+    handle.join()
 }
 
 /// Render lines at current position using per-line clear (flicker-free).
