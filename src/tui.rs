@@ -3,11 +3,96 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{self, ClearType},
+    terminal::{self, BeginSynchronizedUpdate, ClearType, EndSynchronizedUpdate},
 };
 use std::io::{Write, stdout};
 use std::thread;
 use std::time::{Duration, Instant};
+
+fn character_width(character: char) -> usize {
+    match character as u32 {
+        0x0000..=0x001f | 0x007f..=0x009f | 0x0300..=0x036f => 0,
+        0x1100..=0x115f
+        | 0x2329..=0x232a
+        | 0x2e80..=0xa4cf
+        | 0xac00..=0xd7a3
+        | 0xf900..=0xfaff
+        | 0xfe10..=0xfe19
+        | 0xfe30..=0xfe6f
+        | 0xff00..=0xff60
+        | 0xffe0..=0xffe6
+        | 0x1f300..=0x1faff
+        | 0x20000..=0x3fffd => 2,
+        _ => 1,
+    }
+}
+
+pub(crate) fn visible_line_width(line: &str) -> usize {
+    let mut in_escape = false;
+    line.chars()
+        .filter_map(|character| {
+            if in_escape {
+                if character.is_ascii_alphabetic() {
+                    in_escape = false;
+                }
+                None
+            } else if character == '\x1b' {
+                in_escape = true;
+                None
+            } else {
+                Some(character_width(character))
+            }
+        })
+        .sum()
+}
+
+/// Keep a rendered row away from the terminal's last column. Writing into that
+/// column can trigger an implicit wrap, which breaks logical-line cursor math.
+pub(crate) fn truncate_rendered_line(line: &str, max_width: usize) -> String {
+    if visible_line_width(line) <= max_width {
+        return line.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+
+    let content_width = max_width - 1;
+    let mut result = String::new();
+    let mut width = 0;
+    let mut in_escape = false;
+
+    for character in line.chars() {
+        if in_escape {
+            result.push(character);
+            if character.is_ascii_alphabetic() {
+                in_escape = false;
+            }
+            continue;
+        }
+        if character == '\x1b' {
+            in_escape = true;
+            result.push(character);
+            continue;
+        }
+
+        let character_width = character_width(character);
+        if width + character_width > content_width {
+            break;
+        }
+        result.push(character);
+        width += character_width;
+    }
+
+    result.push('…');
+    result.push_str("\x1b[0m");
+    result
+}
+
+fn terminal_line_width() -> usize {
+    terminal::size()
+        .map(|(columns, _)| usize::from(columns).saturating_sub(1))
+        .unwrap_or(79)
+}
 
 fn prev_char_boundary(value: &str, index: usize) -> usize {
     value[..index].char_indices().last().map_or(0, |(i, _)| i)
@@ -72,8 +157,10 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     const FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-    const SHOW_DELAY: Duration = Duration::from_millis(100);
-    const MIN_VISIBLE_DURATION: Duration = Duration::from_millis(200);
+    // Fast operations should complete without flashing a loader for a handful of
+    // frames. Once shown, keep it around long enough to read as intentional UI.
+    const SHOW_DELAY: Duration = Duration::from_millis(200);
+    const MIN_VISIBLE_DURATION: Duration = Duration::from_millis(300);
     const FRAME_INTERVAL: Duration = Duration::from_millis(80);
     let handle = thread::spawn(work);
     let mut stdout = stdout();
@@ -89,28 +176,43 @@ where
     }
 
     let shown_at = Instant::now();
+    let max_width = terminal_line_width();
 
     while !handle.is_finished() || shown_at.elapsed() < MIN_VISIBLE_DURATION {
         let line = format!("  {} {}", FRAMES[frame].cyan(), message);
-        raw_render_lines(&mut stdout, &[line], usize::from(frame > 0));
+        let line = truncate_rendered_line(&line, max_width);
+        // Rewrite only the spinner row. Clearing it and printing a newline on
+        // every frame caused flashes on terminals without sync support.
+        crossterm::queue!(
+            stdout,
+            cursor::MoveToColumn(0),
+            crossterm::style::Print(&line)
+        )
+        .ok();
+        stdout.flush().ok();
         frame = (frame + 1) % FRAMES.len();
         thread::sleep(FRAME_INTERVAL);
     }
 
-    raw_clear_lines(&mut stdout, 1);
+    // Leave the last frame in place. raw_show_status replaces it in the same
+    // buffered update, avoiding a blank frame between loader and result.
     handle.join()
 }
 
 /// Render lines at current position using per-line clear (flicker-free).
 fn raw_render_lines(stdout: &mut impl Write, lines: &[String], prev_count: usize) {
+    let max_width = terminal_line_width();
+    crossterm::queue!(stdout, BeginSynchronizedUpdate).ok();
     if prev_count > 0 {
         crossterm::queue!(stdout, cursor::MoveUp(prev_count as u16)).ok();
     }
     for line in lines {
+        let line = truncate_rendered_line(line, max_width);
         crossterm::queue!(
             stdout,
-            terminal::Clear(ClearType::CurrentLine),
-            crossterm::style::Print(line),
+            cursor::MoveToColumn(0),
+            crossterm::style::Print(&line),
+            terminal::Clear(ClearType::UntilNewLine),
             crossterm::style::Print("\r\n")
         )
         .ok();
@@ -127,6 +229,7 @@ fn raw_render_lines(stdout: &mut impl Write, lines: &[String], prev_count: usize
         }
         crossterm::queue!(stdout, cursor::MoveUp(extra as u16)).ok();
     }
+    crossterm::queue!(stdout, EndSynchronizedUpdate).ok();
     stdout.flush().ok();
 }
 
@@ -135,7 +238,12 @@ pub fn raw_clear_lines(stdout: &mut impl Write, count: usize) {
     if count == 0 {
         return;
     }
-    crossterm::queue!(stdout, cursor::MoveUp(count as u16)).ok();
+    crossterm::queue!(
+        stdout,
+        BeginSynchronizedUpdate,
+        cursor::MoveUp(count as u16)
+    )
+    .ok();
     for _ in 0..count {
         crossterm::queue!(
             stdout,
@@ -144,7 +252,7 @@ pub fn raw_clear_lines(stdout: &mut impl Write, count: usize) {
         )
         .ok();
     }
-    crossterm::queue!(stdout, cursor::MoveUp(count as u16)).ok();
+    crossterm::queue!(stdout, cursor::MoveUp(count as u16), EndSynchronizedUpdate).ok();
     stdout.flush().ok();
 }
 
@@ -448,15 +556,20 @@ pub fn raw_password(prompt: &str) -> Option<String> {
 /// Show status message lines, sleep, then clear them.
 pub fn raw_show_status(lines: &[String], has_issue: bool) {
     let mut stdout = stdout();
+    let max_width = terminal_line_width();
 
+    crossterm::queue!(stdout, BeginSynchronizedUpdate, cursor::MoveToColumn(0)).ok();
     for line in lines {
+        let line = truncate_rendered_line(line, max_width);
         crossterm::queue!(
             stdout,
-            crossterm::style::Print(line),
+            crossterm::style::Print(&line),
+            terminal::Clear(ClearType::UntilNewLine),
             crossterm::style::Print("\r\n")
         )
         .ok();
     }
+    crossterm::queue!(stdout, EndSynchronizedUpdate).ok();
     stdout.flush().ok();
 
     let duration = Duration::from_millis(status_display_duration_ms(lines.len(), has_issue));
