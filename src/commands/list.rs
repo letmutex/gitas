@@ -1,6 +1,7 @@
 use crate::models::{Config, save_config};
 use crate::tui::{
     raw_confirm, raw_input, raw_password, raw_select, raw_show_status, raw_with_loader,
+    truncate_rendered_line,
 };
 use crate::utils::{git_config_get, git_config_set, git_config_unset, git_credential_approve};
 use colored::Colorize;
@@ -8,7 +9,7 @@ use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{self, ClearType},
+    terminal::{self, BeginSynchronizedUpdate, ClearType, EndSynchronizedUpdate, ScrollUp},
 };
 use std::cmp::min;
 use std::io::{Write, stdout};
@@ -40,16 +41,21 @@ impl<'a> ListState<'a> {
     }
 
     fn run_loop(&mut self) {
-        // Setup raw mode
         terminal::enable_raw_mode().ok();
         execute!(stdout(), cursor::Hide).ok();
 
+        self.reserve_transient_space();
         self.render();
 
         loop {
-            let Ok(Event::Key(key)) = event::read() else {
+            let Ok(event) = event::read() else { continue };
+
+            if matches!(event, Event::Resize(_, _)) {
+                self.render();
                 continue;
-            };
+            }
+
+            let Event::Key(key) = event else { continue };
 
             if key.kind != KeyEventKind::Press {
                 continue;
@@ -102,6 +108,38 @@ impl<'a> ListState<'a> {
         terminal::disable_raw_mode().ok();
     }
 
+    fn reserve_transient_space(&self) {
+        const TRANSIENT_ROWS: usize = 4;
+
+        let Ok((_, cursor_row)) = cursor::position() else {
+            return;
+        };
+        let Ok((_, terminal_rows)) = terminal::size() else {
+            return;
+        };
+
+        let frame_rows = self.build_frame(&self.unmanaged).len();
+        let available_rows = usize::from(terminal_rows.saturating_sub(cursor_row));
+        let scroll_rows = (frame_rows + TRANSIENT_ROWS)
+            .saturating_sub(available_rows)
+            .min(usize::from(cursor_row));
+
+        if scroll_rows == 0 {
+            return;
+        }
+
+        let mut stdout = stdout();
+        crossterm::queue!(
+            stdout,
+            BeginSynchronizedUpdate,
+            ScrollUp(scroll_rows as u16),
+            cursor::MoveUp(scroll_rows as u16),
+            EndSynchronizedUpdate
+        )
+        .ok();
+        stdout.flush().ok();
+    }
+
     fn refresh_git(&mut self) {
         self.git = GitIdentity::fetch();
         self.unmanaged = Self::compute_unmanaged(&self.git, self.config);
@@ -126,7 +164,7 @@ impl<'a> ListState<'a> {
         let frame = self.build_frame(unmanaged);
         let mut stdout = stdout();
 
-        // Move to start of previous frame
+        crossterm::queue!(stdout, BeginSynchronizedUpdate).ok();
         if self.last_rendered_lines > 0 {
             crossterm::queue!(stdout, cursor::MoveUp(self.last_rendered_lines as u16)).ok();
         }
@@ -135,44 +173,37 @@ impl<'a> ListState<'a> {
         for line in &frame {
             crossterm::queue!(
                 stdout,
-                terminal::Clear(ClearType::CurrentLine),
+                cursor::MoveToColumn(0),
                 crossterm::style::Print(line),
+                terminal::Clear(ClearType::UntilNewLine),
                 crossterm::style::Print("\r\n")
             )
             .ok();
         }
 
-        // If previous frame was taller, clear leftover lines
-        if frame.len() < self.last_rendered_lines {
-            let extra = self.last_rendered_lines - frame.len();
-            for _ in 0..extra {
-                crossterm::queue!(
-                    stdout,
-                    terminal::Clear(ClearType::CurrentLine),
-                    crossterm::style::Print("\r\n")
-                )
-                .ok();
-            }
-            crossterm::queue!(stdout, cursor::MoveUp(extra as u16)).ok();
-        }
-
-        // Clear any stale content below the frame (leftover from submenus)
-        crossterm::queue!(stdout, terminal::Clear(ClearType::FromCursorDown)).ok();
+        crossterm::queue!(
+            stdout,
+            terminal::Clear(ClearType::FromCursorDown),
+            EndSynchronizedUpdate
+        )
+        .ok();
 
         stdout.flush().ok();
         self.last_rendered_lines = frame.len();
     }
 
     fn clear_frame(&mut self) {
-        if self.last_rendered_lines > 0 {
-            execute!(
-                stdout(),
-                cursor::MoveUp(self.last_rendered_lines as u16),
-                terminal::Clear(ClearType::FromCursorDown)
-            )
-            .ok();
-            self.last_rendered_lines = 0;
+        if self.last_rendered_lines == 0 {
+            return;
         }
+
+        execute!(
+            stdout(),
+            cursor::MoveUp(self.last_rendered_lines as u16),
+            terminal::Clear(ClearType::FromCursorDown)
+        )
+        .ok();
+        self.last_rendered_lines = 0;
     }
 
     fn compute_unmanaged(git: &GitIdentity, config: &Config) -> Vec<(String, String, String)> {
@@ -285,7 +316,15 @@ impl<'a> ListState<'a> {
 
         frame.push(format!("  {}", "─".repeat(safe_sep_len).dimmed()));
         frame.push(String::new());
+
+        // Leave the rightmost cell untouched to avoid the terminal's automatic
+        // wrap behavior. This also keeps resize events from changing the number
+        // of physical rows occupied by a logical frame.
+        let line_width = (term_cols as usize).saturating_sub(1);
         frame
+            .into_iter()
+            .map(|line| truncate_rendered_line(&line, line_width))
+            .collect()
     }
 
     fn format_account_line(
@@ -537,7 +576,9 @@ impl<'a> ListState<'a> {
             return false;
         }
 
-        status_lines.push(String::new());
+        if !status_lines.is_empty() {
+            status_lines.push(String::new());
+        }
         status_lines.push(format!(
             "{}   Switched to '{}' ({})",
             "✔".green(),
@@ -747,5 +788,31 @@ impl GitIdentity {
 
     fn has_local(&self) -> bool {
         self.local_name.is_some() || self.local_email.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tui::{truncate_rendered_line, visible_line_width};
+
+    #[test]
+    fn truncates_rows_before_the_terminal_wrap_column() {
+        let line = truncate_rendered_line("0123456789", 6);
+
+        assert_eq!(visible_line_width(&line), 6);
+        assert!(line.starts_with("01234…"));
+    }
+
+    #[test]
+    fn ignores_ansi_sequences_when_measuring_rows() {
+        let line = truncate_rendered_line("\x1b[32mabcdefgh\x1b[0m", 5);
+
+        assert_eq!(visible_line_width(&line), 5);
+        assert!(line.contains("abcd…"));
+    }
+
+    #[test]
+    fn leaves_rows_that_already_fit_untouched() {
+        assert_eq!(truncate_rendered_line("account", 12), "account");
     }
 }
