@@ -181,19 +181,6 @@ impl<'a> ListState<'a> {
             .ok();
         }
 
-        if frame.len() < self.last_rendered_lines {
-            let extra = self.last_rendered_lines - frame.len();
-            for _ in 0..extra {
-                crossterm::queue!(
-                    stdout,
-                    terminal::Clear(ClearType::CurrentLine),
-                    crossterm::style::Print("\r\n")
-                )
-                .ok();
-            }
-            crossterm::queue!(stdout, cursor::MoveUp(extra as u16)).ok();
-        }
-
         crossterm::queue!(
             stdout,
             terminal::Clear(ClearType::FromCursorDown),

@@ -176,9 +176,9 @@ where
     }
 
     let shown_at = Instant::now();
-    let max_width = terminal_line_width();
 
     while !handle.is_finished() || shown_at.elapsed() < MIN_VISIBLE_DURATION {
+        let max_width = terminal_line_width();
         let line = format!("  {} {}", FRAMES[frame].cyan(), message);
         let line = truncate_rendered_line(&line, max_width);
         // Rewrite only the spinner row. Clearing it and printing a newline on
